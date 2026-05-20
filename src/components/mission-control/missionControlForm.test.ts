@@ -1,0 +1,105 @@
+import { describe, expect, it } from 'vitest';
+import { buildChurchInput, buildEditChurchForm } from './missionControlForm';
+
+describe('mission control church form mapping', () => {
+  it('builds numeric and array fields from string form values', () => {
+    expect(
+      buildChurchInput({
+        name: 'St. George',
+        denomination: 'Eastern Orthodox',
+        jurisdiction: 'OCA',
+        diocese: 'West',
+        foundedYear: '1985',
+        about: 'About',
+        languages: 'English, Serbian',
+        address: '123 Main St',
+        city: 'Denver',
+        state: 'CO',
+        country: 'US',
+        postalCode: '80202',
+        latitude: '39.7392',
+        longitude: '-104.9903',
+        timezone: 'America/Denver',
+        phone: '123',
+        contactEmail: 'office@example.com',
+        website: 'https://example.com',
+        imageURL: 'https://example.com/thumb.jpg',
+        coverImageURL: 'https://example.com/cover.jpg',
+      })
+    ).toEqual({
+      name: 'St. George',
+      denomination: 'Eastern Orthodox',
+      jurisdiction: 'OCA',
+      diocese: 'West',
+      foundedYear: 1985,
+      about: 'About',
+      languages: ['English', 'Serbian'],
+      address: '123 Main St',
+      city: 'Denver',
+      state: 'CO',
+      country: 'US',
+      postalCode: '80202',
+      latitude: 39.7392,
+      longitude: -104.9903,
+      timezone: 'America/Denver',
+      phone: '123',
+      contactEmail: 'office@example.com',
+      website: 'https://example.com',
+      imageURL: 'https://example.com/thumb.jpg',
+      coverImageURL: 'https://example.com/cover.jpg',
+    });
+  });
+
+  it('hydrates edit form values from a full church summary', () => {
+    expect(
+      buildEditChurchForm({
+        id: 'church-1',
+        name: 'St. Nicholas',
+        location: 'Chicago, IL',
+        imageURL: 'https://example.com/thumb.jpg',
+        coverImageURL: 'https://example.com/cover.jpg',
+        denomination: 'Eastern Orthodox',
+        jurisdiction: 'OCA',
+        diocese: 'Midwest',
+        foundedYear: 1920,
+        about: 'Historic parish',
+        languages: ['English', 'Romanian'],
+        address: '1 Church St',
+        city: 'Chicago',
+        state: 'IL',
+        country: 'US',
+        postalCode: '60601',
+        latitude: 41.8818,
+        longitude: -87.6231,
+        timezone: 'America/Chicago',
+        phone: '123',
+        contactEmail: 'office@example.com',
+        website: 'https://example.com',
+        clergy: [],
+        serviceSchedule: [],
+        socialMedia: { instagram: '', facebook: '', youtube: '' },
+        isVerified: true,
+        isActive: true,
+        showSaintDays: false,
+      })
+    ).toMatchObject({
+      name: 'St. Nicholas',
+      jurisdiction: 'OCA',
+      diocese: 'Midwest',
+      languages: 'English, Romanian',
+      address: '1 Church St',
+      city: 'Chicago',
+      state: 'IL',
+      country: 'US',
+      postalCode: '60601',
+      latitude: '41.8818',
+      longitude: '-87.6231',
+      timezone: 'America/Chicago',
+      phone: '123',
+      contactEmail: 'office@example.com',
+      website: 'https://example.com',
+      imageURL: 'https://example.com/thumb.jpg',
+      coverImageURL: 'https://example.com/cover.jpg',
+    });
+  });
+});

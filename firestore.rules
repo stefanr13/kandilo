@@ -1,0 +1,590 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isVerifiedNonAnonymous() {
+      return request.auth != null
+        && request.auth.token.email_verified == true
+        && request.auth.token.firebase.sign_in_provider != 'anonymous';
+    }
+
+    function isOwner(userId) {
+      return request.auth.uid == userId;
+    }
+
+    // Platform-level super admin — verified via JWT custom claim, zero extra reads.
+    function isSuperAdmin() {
+      return request.auth != null && request.auth.token.superAdmin == true;
+    }
+
+    function getMembership(churchId) {
+      return get(/databases/$(database)/documents/churches/$(churchId)/members/$(request.auth.uid)).data;
+    }
+
+    function isMember(churchId) {
+      let m = getMembership(churchId);
+      return m != null && m.status == 'active';
+    }
+
+    function isAdmin(churchId) {
+      let m = getMembership(churchId);
+      return m != null && m.status == 'active'
+        && (m.role == 'admin' || m.role == 'priest');
+    }
+
+    function isPriest(churchId) {
+      let m = getMembership(churchId);
+      return m != null && m.status == 'active' && m.role == 'priest';
+    }
+
+    function isAssignableClientRole(role) {
+      return role == 'member' || role == 'admin';
+    }
+
+    function isValidMembershipStatus(status) {
+      return status == 'active' || status == 'suspended';
+    }
+
+    function isValidPostStatus(status) {
+      return status == 'draft' || status == 'published';
+    }
+
+    function isValidNewsletterStatus(status) {
+      return status == 'draft' || status == 'published';
+    }
+
+    function validString(value, max) {
+      return value is string && value.size() <= max;
+    }
+
+    function validOptionalString(value, max) {
+      return value == null || (value is string && value.size() <= max);
+    }
+
+    function validOptionalBool(value) {
+      return value == null || value is bool;
+    }
+
+    function validOptionalUrl(value) {
+      return value == null
+        || value == ''
+        || (value is string
+          && value.size() <= 2000
+          && value.matches('https://.*'));
+    }
+
+    function validFcmTokens(tokens) {
+      return tokens is list && tokens.size() <= 10;
+    }
+
+    function validOptionalFcmTokens(tokens) {
+      return tokens == null || validFcmTokens(tokens);
+    }
+
+    function validUserProfileBase() {
+      return request.resource.data.email == request.auth.token.email
+        && validString(request.resource.data.displayName, 120)
+        && validOptionalUrl(request.resource.data.photoURL)
+        && validString(request.resource.data.preferredLanguage, 40)
+        && validString(request.resource.data.phone, 40)
+        && request.resource.data.ministries is list
+        && request.resource.data.ministries.size() <= 20
+        && validString(request.resource.data.description, 1000)
+        && request.resource.data.showInDirectory is bool
+        && validFcmTokens(request.resource.data.fcmTokens);
+    }
+
+    function validUserProfileCreate() {
+      return request.resource.data.keys().hasOnly([
+          'email',
+          'displayName',
+          'photoURL',
+          'preferredLanguage',
+          'phone',
+          'ministries',
+          'description',
+          'showInDirectory',
+          'fcmTokens',
+          'createdAt',
+        ])
+        && validUserProfileBase()
+        && request.resource.data.createdAt == request.time;
+    }
+
+    function validUserProfileUpdate() {
+      return request.resource.data.email == resource.data.email
+        && request.resource.data.createdAt == resource.data.createdAt
+        && validString(request.resource.data.displayName, 120)
+        && validOptionalUrl(request.resource.data.photoURL)
+        && validString(request.resource.data.preferredLanguage, 40)
+        && validOptionalString(request.resource.data.phone, 40)
+        && (request.resource.data.ministries == null
+          || (request.resource.data.ministries is list && request.resource.data.ministries.size() <= 20))
+        && validOptionalString(request.resource.data.description, 1000)
+        && validOptionalBool(request.resource.data.showInDirectory)
+        && validOptionalFcmTokens(request.resource.data.fcmTokens)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'displayName',
+          'photoURL',
+          'preferredLanguage',
+          'phone',
+          'ministries',
+          'description',
+          'showInDirectory',
+          'fcmTokens',
+        ]);
+    }
+
+    function adminMayEditChurchSettings() {
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'showSaintDays',
+        ])
+        && request.resource.data.showSaintDays is bool;
+    }
+
+    function validMemberProfileFields() {
+      return validOptionalString(request.resource.data.displayName, 120)
+        && validOptionalUrl(request.resource.data.photoURL)
+        && validOptionalString(request.resource.data.phone, 40)
+        && validOptionalString(request.resource.data.ministry, 300)
+        && validOptionalString(request.resource.data.description, 1000)
+        && validOptionalBool(request.resource.data.showInDirectory);
+    }
+
+    function adminMayUpdateMemberStatusOnly(userId) {
+      return !isOwner(userId)
+        && resource.data.role == 'member'
+        && request.resource.data.role == resource.data.role
+        && isValidMembershipStatus(request.resource.data.status)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'status',
+        ]);
+    }
+
+    function ownerMayUpdateOwnMemberProfile(userId) {
+      return isOwner(userId)
+        && request.resource.data.role == resource.data.role
+        && request.resource.data.status == resource.data.status
+        && validMemberProfileFields()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'displayName',
+          'photoURL',
+          'phone',
+          'ministry',
+          'description',
+          'showInDirectory',
+        ]);
+    }
+
+    function priestMayUpdateMember(userId) {
+      return !isOwner(userId)
+        && resource.data.role != 'priest'
+        && isAssignableClientRole(request.resource.data.role)
+        && isValidMembershipStatus(request.resource.data.status)
+        && validMemberProfileFields()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'role',
+          'status',
+          'displayName',
+          'photoURL',
+          'phone',
+          'ministry',
+          'description',
+          'showInDirectory',
+        ]);
+    }
+
+    function priestMayUpdateMembershipFanout(userId) {
+      return !isOwner(userId)
+        && resource.data.role != 'priest'
+        && isAssignableClientRole(request.resource.data.role)
+        && isValidMembershipStatus(request.resource.data.status)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'role',
+          'status',
+        ]);
+    }
+
+    function adminMayUpdateMembershipStatusOnly(userId) {
+      return !isOwner(userId)
+        && resource.data.role == 'member'
+        && request.resource.data.role == resource.data.role
+        && isValidMembershipStatus(request.resource.data.status)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'status',
+        ]);
+    }
+
+    function eventBelongsToChurch(eventId, churchId) {
+      return exists(/databases/$(database)/documents/events/$(eventId))
+        && get(/databases/$(database)/documents/events/$(eventId)).data.churchId == churchId;
+    }
+
+    function checkInMemberMatches(churchId, userId) {
+      return exists(/databases/$(database)/documents/churches/$(churchId)/members/$(userId))
+        && get(/databases/$(database)/documents/churches/$(churchId)/members/$(userId)).data.status == 'active'
+        && request.resource.data.memberName == get(/databases/$(database)/documents/churches/$(churchId)/members/$(userId)).data.displayName
+        && request.resource.data.memberEmail == get(/databases/$(database)/documents/churches/$(churchId)/members/$(userId)).data.email;
+    }
+
+    function validEventCheckInCreate(checkInId) {
+      return request.resource.data.keys().hasOnly([
+          'churchId',
+          'eventId',
+          'userId',
+          'memberName',
+          'memberEmail',
+          'checkedInBy',
+          'checkedInAt',
+        ])
+        && validString(request.resource.data.churchId, 128)
+        && validString(request.resource.data.eventId, 128)
+        && validString(request.resource.data.userId, 128)
+        && validString(request.resource.data.memberName, 120)
+        && validString(request.resource.data.memberEmail, 254)
+        && request.resource.data.checkedInBy == request.auth.uid
+        && request.resource.data.checkedInAt == request.time
+        && checkInId == request.resource.data.eventId + '_' + request.resource.data.userId
+        && eventBelongsToChurch(request.resource.data.eventId, request.resource.data.churchId)
+        && checkInMemberMatches(request.resource.data.churchId, request.resource.data.userId);
+    }
+
+    function validPostCreate(churchId) {
+      return request.resource.data.keys().hasOnly([
+          'churchId',
+          'authorId',
+          'authorName',
+          'title',
+          'contentHtml',
+          'contentJSON',
+          'status',
+          'createdAt',
+          'updatedAt',
+          'publishedAt',
+        ])
+        && request.resource.data.churchId == churchId
+        && request.resource.data.authorId == request.auth.uid
+        && validString(request.resource.data.authorName, 120)
+        && validString(request.resource.data.title, 180)
+        && validString(request.resource.data.contentHtml, 20000)
+        && request.resource.data.contentJSON is map
+        && isValidPostStatus(request.resource.data.status)
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.updatedAt == request.time
+        && (
+          (request.resource.data.status == 'published' && request.resource.data.publishedAt == request.time)
+          || (request.resource.data.status == 'draft' && request.resource.data.publishedAt == null)
+        );
+    }
+
+    function validPostUpdate() {
+      return request.resource.data.churchId == resource.data.churchId
+        && request.resource.data.authorId == resource.data.authorId
+        && request.resource.data.authorName == resource.data.authorName
+        && request.resource.data.createdAt == resource.data.createdAt
+        && validString(request.resource.data.title, 180)
+        && validString(request.resource.data.contentHtml, 20000)
+        && request.resource.data.contentJSON is map
+        && isValidPostStatus(request.resource.data.status)
+        && request.resource.data.updatedAt == request.time
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'title',
+          'contentHtml',
+          'contentJSON',
+          'status',
+          'updatedAt',
+          'publishedAt',
+        ])
+        && (
+          request.resource.data.publishedAt == resource.data.publishedAt
+          || (
+            resource.data.publishedAt == null
+            && request.resource.data.status == 'published'
+            && request.resource.data.publishedAt == request.time
+          )
+        );
+    }
+
+    function validEventCreate() {
+      return request.resource.data.keys().hasOnly([
+          'churchId',
+          'createdBy',
+          'title',
+          'description',
+          'startTime',
+          'endTime',
+          'location',
+          'category',
+          'notificationSent',
+          'createdAt',
+        ])
+        && validString(request.resource.data.churchId, 128)
+        && request.resource.data.createdBy == request.auth.uid
+        && validString(request.resource.data.title, 180)
+        && validString(request.resource.data.description, 5000)
+        && request.resource.data.startTime is timestamp
+        && request.resource.data.endTime is timestamp
+        && request.resource.data.endTime > request.resource.data.startTime
+        && validString(request.resource.data.location, 300)
+        && validString(request.resource.data.category, 80)
+        && request.resource.data.notificationSent == false
+        && request.resource.data.createdAt == request.time;
+    }
+
+    function validEventUpdate() {
+      return request.resource.data.churchId == resource.data.churchId
+        && request.resource.data.createdBy == resource.data.createdBy
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.notificationSent == resource.data.notificationSent
+        && validString(request.resource.data.title, 180)
+        && validString(request.resource.data.description, 5000)
+        && request.resource.data.startTime is timestamp
+        && request.resource.data.endTime is timestamp
+        && request.resource.data.endTime > request.resource.data.startTime
+        && validString(request.resource.data.location, 300)
+        && validString(request.resource.data.category, 80)
+        && request.resource.data.updatedAt == request.time
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'title',
+          'description',
+          'startTime',
+          'endTime',
+          'location',
+          'category',
+          'updatedAt',
+        ]);
+    }
+
+    function validNewsletterCreate() {
+      return request.resource.data.keys().hasOnly([
+          'churchId',
+          'title',
+          'content',
+          'excerpt',
+          'status',
+          'publishedAt',
+          'createdBy',
+          'emailSent',
+          'createdAt',
+          'updatedAt',
+        ])
+        && validString(request.resource.data.churchId, 128)
+        && request.resource.data.createdBy == request.auth.uid
+        && validString(request.resource.data.title, 180)
+        && validString(request.resource.data.content, 30000)
+        && validString(request.resource.data.excerpt, 500)
+        && isValidNewsletterStatus(request.resource.data.status)
+        && request.resource.data.emailSent == false
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.updatedAt == request.time
+        && (
+          (request.resource.data.status == 'published' && request.resource.data.publishedAt == request.time)
+          || (request.resource.data.status == 'draft' && request.resource.data.publishedAt == null)
+        );
+    }
+
+    function validNewsletterUpdate() {
+      return request.resource.data.churchId == resource.data.churchId
+        && request.resource.data.createdBy == resource.data.createdBy
+        && request.resource.data.emailSent == resource.data.emailSent
+        && request.resource.data.createdAt == resource.data.createdAt
+        && validString(request.resource.data.title, 180)
+        && validString(request.resource.data.content, 30000)
+        && validString(request.resource.data.excerpt, 500)
+        && isValidNewsletterStatus(request.resource.data.status)
+        && request.resource.data.updatedAt == request.time
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'title',
+          'content',
+          'excerpt',
+          'status',
+          'publishedAt',
+          'updatedAt',
+        ])
+        && (
+          request.resource.data.publishedAt == resource.data.publishedAt
+          || (
+            resource.data.publishedAt == null
+            && request.resource.data.status == 'published'
+            && request.resource.data.publishedAt == request.time
+          )
+        );
+    }
+
+    // ─── Users ────────────────────────────────────────────────────────────────
+
+    match /users/{userId} {
+      allow read: if (isVerifiedNonAnonymous() && isOwner(userId)) || isSuperAdmin();
+      allow create: if isVerifiedNonAnonymous() && isOwner(userId) && validUserProfileCreate();
+      allow update: if isVerifiedNonAnonymous() && isOwner(userId) && validUserProfileUpdate();
+      allow delete: if false;
+
+      match /churchMemberships/{churchId} {
+        allow read: if (isVerifiedNonAnonymous() && isOwner(userId)) || isSuperAdmin();
+        // Membership fan-out writes are handled by trusted backend code only.
+        allow create: if false;
+        allow delete: if isVerifiedNonAnonymous() && isOwner(userId);
+        allow update: if isVerifiedNonAnonymous() && (
+          (isPriest(churchId) && priestMayUpdateMembershipFanout(userId))
+          || (isAdmin(churchId) && adminMayUpdateMembershipStatusOnly(userId))
+        );
+      }
+    }
+
+    // ─── Churches ─────────────────────────────────────────────────────────────
+
+    match /churches/{churchId} {
+      allow read: if isSuperAdmin() || (isVerifiedNonAnonymous() && resource.data.isActive == true);
+      allow create: if isSuperAdmin();
+
+      // Client-side church edits are limited to low-risk feature toggles.
+      // Broader metadata/state changes must go through audited backend code.
+      allow update: if isSuperAdmin()
+        || (isVerifiedNonAnonymous() && isAdmin(churchId) && adminMayEditChurchSettings());
+
+      allow delete: if false;
+
+      match /members/{userId} {
+        allow read: if isSuperAdmin()
+          || (isVerifiedNonAnonymous() && isAdmin(churchId))
+          || (isVerifiedNonAnonymous() && isOwner(userId))
+          || (
+            isVerifiedNonAnonymous()
+            && isMember(churchId)
+            && resource.data.status == 'active'
+            && resource.data.showInDirectory == true
+          );
+        // Membership documents are created only by trusted backend code.
+        allow create: if false;
+        // Role changes are priest-only, but client-side promotion to priest is blocked.
+        // Admins can suspend/reinstate members only.
+        // Members can update their own directory profile fields.
+        allow update: if isVerifiedNonAnonymous() && (
+          (isPriest(churchId) && priestMayUpdateMember(userId))
+          || (isAdmin(churchId) && adminMayUpdateMemberStatusOnly(userId))
+          || ownerMayUpdateOwnMemberProfile(userId)
+        );
+        allow delete: if isVerifiedNonAnonymous() && isOwner(userId);
+      }
+
+      // ─── Church Posts ──────────────────────────────────────────────────────
+
+      match /posts/{postId} {
+        // Published posts are readable by any active member; drafts only by admins/priests.
+        allow read: if isSuperAdmin()
+          || (isVerifiedNonAnonymous() && isAdmin(churchId))
+          || (isVerifiedNonAnonymous() && isMember(churchId) && resource.data.status == 'published');
+
+        allow create: if isVerifiedNonAnonymous()
+          && isAdmin(churchId)
+          && validPostCreate(churchId);
+
+        allow update: if isVerifiedNonAnonymous()
+          && isAdmin(churchId)
+          && validPostUpdate();
+
+        allow delete: if isVerifiedNonAnonymous() && isAdmin(churchId);
+      }
+    }
+
+    // ─── Events ───────────────────────────────────────────────────────────────
+
+    match /events/{eventId} {
+      allow read: if isSuperAdmin() || (isVerifiedNonAnonymous() && isMember(resource.data.churchId));
+      allow create: if isVerifiedNonAnonymous()
+        && isAdmin(request.resource.data.churchId)
+        && validEventCreate();
+      allow update: if isVerifiedNonAnonymous()
+        && isAdmin(resource.data.churchId)
+        && validEventUpdate();
+      allow delete: if isVerifiedNonAnonymous() && isAdmin(resource.data.churchId);
+    }
+
+    // ─── Newsletters ──────────────────────────────────────────────────────────
+
+    match /newsletters/{newsletterId} {
+      allow read: if isSuperAdmin()
+        || (isVerifiedNonAnonymous() && isAdmin(resource.data.churchId))
+        || (
+          isVerifiedNonAnonymous()
+          && isMember(resource.data.churchId)
+          && resource.data.status == 'published'
+        );
+      allow create: if isVerifiedNonAnonymous()
+        && isAdmin(request.resource.data.churchId)
+        && validNewsletterCreate();
+      allow update: if isVerifiedNonAnonymous()
+        && isAdmin(resource.data.churchId)
+        && validNewsletterUpdate();
+      allow delete: if isVerifiedNonAnonymous() && isPriest(resource.data.churchId);
+    }
+
+    // ─── Invitations ──────────────────────────────────────────────────────────
+
+    match /invitations/{invitationId} {
+      allow read: if isSuperAdmin() || (isVerifiedNonAnonymous() && (
+        (request.auth.token.email == resource.data.inviteeEmail)
+        || isAdmin(resource.data.churchId)
+      ));
+      // Invitation lifecycle is enforced exclusively via Cloud Functions.
+      allow create, update, delete: if false;
+    }
+
+    // ─── Notifications ────────────────────────────────────────────────────────
+
+    match /notifications/{notificationId} {
+      allow read: if isSuperAdmin() || (isVerifiedNonAnonymous() && isMember(resource.data.churchId));
+      allow write: if false;
+    }
+
+    // ─── Giving ───────────────────────────────────────────────────────────────
+
+    match /giving/{givingId} {
+      allow read: if isSuperAdmin() || (isVerifiedNonAnonymous() && (
+        isOwner(resource.data.userId) || isPriest(resource.data.churchId)
+      ));
+      // All writes are performed exclusively by Cloud Functions (Admin SDK, bypasses rules).
+      allow create, update, delete: if false;
+    }
+
+    // ─── Event Check-ins ─────────────────────────────────────────────────────
+
+    match /eventCheckIns/{checkInId} {
+      allow read: if isSuperAdmin() || (isVerifiedNonAnonymous() && (
+        isAdmin(resource.data.churchId) || isOwner(resource.data.userId)
+      ));
+      allow create: if isVerifiedNonAnonymous()
+        && isAdmin(request.resource.data.churchId)
+        && validEventCheckInCreate(checkInId);
+      allow update: if false;
+      allow delete: if isVerifiedNonAnonymous() && isAdmin(resource.data.churchId);
+    }
+
+    // ─── Platform Audit Log ──────────────────────────────────────────────────
+
+    match /platformAuditLog/{logId} {
+      allow read: if isSuperAdmin();
+      allow write: if false;
+    }
+
+    // ─── Saints Calendar ─────────────────────────────────────────────────────
+    // Public read — no auth required. Static liturgical reference data.
+    // Writes go through admin scripts only; client writes are permanently blocked.
+
+    match /saints/{date} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    match /saints_index/{date} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    match /saints_index_months/{month} {
+      allow read: if true;
+      allow write: if false;
+    }
+  }
+}

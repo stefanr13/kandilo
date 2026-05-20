@@ -1,0 +1,28 @@
+node_modules/
+build/
+dist/
+functions/lib/
+coverage/
+.firebase/
+.DS_Store
+*.log
+public/firebase-messaging-sw-config.js
+.env*
+!.env.example
+
+# Capacitor native build artifacts
+ios/App/App/public/
+ios/App/Pods/
+ios/DerivedData/
+android/app/src/main/assets/public/
+android/.gradle/
+android/build/
+android/app/build/
+
+# Firebase native app configs
+android/app/google-services.json
+ios/App/App/GoogleService-Info.plist
+
+# Android release signing config
+android/keystore.properties
+service-account.json

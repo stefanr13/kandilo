@@ -1,0 +1,76 @@
+rules_version = '2';
+
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    function isVerifiedNonAnonymous() {
+      return request.auth != null
+        && request.auth.token.email_verified == true
+        && request.auth.token.firebase.sign_in_provider != 'anonymous';
+    }
+
+    function isActiveChurch(churchId) {
+      return firestore.exists(/databases/(default)/documents/churches/$(churchId))
+        && firestore.get(/databases/(default)/documents/churches/$(churchId)).data.isActive == true;
+    }
+
+    function isActiveMember(churchId) {
+      return isVerifiedNonAnonymous()
+        && firestore.exists(/databases/(default)/documents/churches/$(churchId)/members/$(request.auth.uid))
+        && firestore.get(/databases/(default)/documents/churches/$(churchId)/members/$(request.auth.uid)).data.status == 'active';
+    }
+
+    function isActiveAdmin(churchId) {
+      let member = firestore.get(/databases/(default)/documents/churches/$(churchId)/members/$(request.auth.uid)).data;
+      return isActiveMember(churchId)
+        && (member.role == 'admin' || member.role == 'priest');
+    }
+
+    function isAllowedImageContentType() {
+      return request.resource.contentType == 'image/jpeg'
+        || request.resource.contentType == 'image/png'
+        || request.resource.contentType == 'image/webp';
+    }
+
+    function isAllowedPostAttachmentContentType() {
+      return isAllowedImageContentType()
+        || request.resource.contentType == 'application/pdf';
+    }
+
+    // Church top-level assets (logos, cover photos): readable by verified users
+    // for active churches. Writes remain backend-only.
+    match /churches/{churchId}/{fileName} {
+      allow read: if isVerifiedNonAnonymous() && isActiveChurch(churchId);
+      allow write: if false;
+    }
+
+    // User avatars: owner can write constrained raster images; verified users can read.
+    match /users/{userId}/avatar/{fileName} {
+      allow read: if isVerifiedNonAnonymous();
+      allow write: if isVerifiedNonAnonymous()
+        && request.auth.uid == userId
+        && fileName.matches('avatar-[A-Za-z0-9-]+\\.(jpg|png|webp)')
+        && request.resource.size < 5 * 1024 * 1024
+        && isAllowedImageContentType()
+        && request.resource.metadata.ownerUid == request.auth.uid;
+    }
+
+    // Post attachments: only active members may read; only active admins/priests
+    // may write, and only for an existing post in the same church.
+    match /churches/{churchId}/posts/{postId}/{fileName} {
+      allow read: if isActiveMember(churchId)
+        && firestore.exists(/databases/(default)/documents/churches/$(churchId)/posts/$(postId));
+
+      allow write: if isActiveAdmin(churchId)
+        && firestore.exists(/databases/(default)/documents/churches/$(churchId)/posts/$(postId))
+        && fileName.matches('[A-Za-z0-9][A-Za-z0-9._-]{0,119}')
+        && request.resource.size < 10 * 1024 * 1024
+        && isAllowedPostAttachmentContentType();
+    }
+
+    // Block all other paths by default.
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}
