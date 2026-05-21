@@ -111,3 +111,18 @@ The repo includes the well-known files, entitlements, custom URL scheme, and URL
 - `public/.well-known/assetlinks.json`: add the Android release signing SHA-256 fingerprint for `com.kandilo.app`; the current fingerprint is the local debug keystore for pre-store testing.
 
 Deploy hosting after updating these files. This is needed for HTTPS invite links and payment return links to open the native app reliably.
+
+## 9. Periodic Firebase Maintenance
+
+Review this at least monthly and after any deploy that prints a Functions artifact cleanup warning.
+
+Confirm old Cloud Functions container images are covered by cleanup policies:
+
+```bash
+npx firebase-tools@latest functions:artifacts:setpolicy --project kandilo-2f7a9 --location=us-central1 --days=1 --force
+npx firebase-tools@latest functions:artifacts:setpolicy --project kandilo-2f7a9 --location=northamerica-northeast2 --days=1 --force
+```
+
+If both commands report that a cleanup policy already exists, no action is needed for Artifact Registry images. This was last verified on May 21, 2026.
+
+If a deploy reports an "Unhandled error cleaning up build images" warning, check the Google Cloud Console links printed by Firebase for stale legacy `gcf` build images. Delete only stale build artifacts after confirming they are not active Cloud Functions or Cloud Run revision images. If there is any uncertainty, check with Stefan before manual deletion.
