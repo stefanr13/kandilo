@@ -534,6 +534,72 @@ describe('Cloud Functions emulator', () => {
       status: 'active',
     });
 
+    await adminDb.doc('churches/church-2').set({
+      ...churchData(),
+      name: 'St. Sava',
+      city: 'Phoenix',
+      state: 'AZ',
+      location: 'Phoenix, AZ',
+      imageURL: 'https://example.com/st-sava.jpg',
+    });
+
+    await expect(
+      callCallable(
+        'assignChurchMembershipAsSuperAdmin',
+        {
+          churchId: CHURCH_ID,
+          email: 'invitee@example.com',
+          role: 'priest',
+        },
+        SUPER_ADMIN_AUTH
+      )
+    ).resolves.toMatchObject({
+      success: true,
+      churchId: CHURCH_ID,
+      uid: 'invitee-1',
+      role: 'priest',
+    });
+    await expect(
+      callCallable(
+        'assignChurchMembershipAsSuperAdmin',
+        {
+          churchId: 'church-2',
+          email: 'invitee@example.com',
+          role: 'priest',
+        },
+        SUPER_ADMIN_AUTH
+      )
+    ).resolves.toMatchObject({
+      success: true,
+      churchId: 'church-2',
+      uid: 'invitee-1',
+      role: 'priest',
+    });
+
+    const [firstPriestFanout, secondPriestFanout, secondPriestMember] = await Promise.all([
+      adminDb.doc(`users/invitee-1/churchMemberships/${CHURCH_ID}`).get(),
+      adminDb.doc('users/invitee-1/churchMemberships/church-2').get(),
+      adminDb.doc('churches/church-2/members/invitee-1').get(),
+    ]);
+    expect(firstPriestFanout.data()).toMatchObject({
+      churchId: CHURCH_ID,
+      role: 'priest',
+      status: 'active',
+    });
+    expect(secondPriestFanout.data()).toMatchObject({
+      churchId: 'church-2',
+      churchName: 'St. Sava',
+      location: 'Phoenix, AZ',
+      role: 'priest',
+      status: 'active',
+    });
+    expect(secondPriestMember.data()).toMatchObject({
+      userId: 'invitee-1',
+      churchId: 'church-2',
+      role: 'priest',
+      status: 'active',
+    });
+
     await expect(
       callCallable('promoteSuperAdmin', { targetUid: 'other-1' }, SUPER_ADMIN_AUTH)
     ).resolves.toEqual({ success: true });

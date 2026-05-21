@@ -252,6 +252,24 @@ describe('Firestore rules', () => {
     })));
   });
 
+  it('allows members to leave mirrored memberships but not self-create memberships', async () => {
+    const memberDb = dbFor(verifiedContext('member-1', 'member@example.com'));
+    const memberRef = doc(memberDb, `churches/${CHURCH_ID}/members/member-1`);
+    const fanoutRef = doc(memberDb, `users/member-1/churchMemberships/${CHURCH_ID}`);
+
+    await assertFails(setDoc(doc(memberDb, 'churches/church-2/members/member-1'), memberDoc({
+      uid: 'member-1',
+      email: 'member@example.com',
+      role: 'member',
+    })));
+    await assertFails(setDoc(doc(memberDb, 'users/member-1/churchMemberships/church-2'), membershipFanout({
+      role: 'member',
+    })));
+
+    await assertSucceeds(deleteDoc(memberRef));
+    await assertSucceeds(deleteDoc(fanoutRef));
+  });
+
   it('enforces invitation and giving read/write boundaries', async () => {
     await testEnv.withSecurityRulesDisabled(async (context) => {
       const db = dbFor(context);
