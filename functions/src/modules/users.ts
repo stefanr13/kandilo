@@ -1,9 +1,9 @@
 import * as v1 from 'firebase-functions/v1';
 import { db } from '../shared/firebase';
-import { FIRESTORE_REGION } from '../shared/regions';
+import { AUTH_TRIGGER_REGION } from '../shared/regions';
 import { normalizeEmail } from '../shared/security';
 
-export const onUserDeleted = v1.region(FIRESTORE_REGION).auth.user().onDelete(async (user) => {
+export const onUserDeleted = v1.region(AUTH_TRIGGER_REGION).auth.user().onDelete(async (user) => {
   const uid = user.uid;
   const email = user.email ? normalizeEmail(user.email) : null;
 

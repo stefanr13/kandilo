@@ -3,7 +3,7 @@ import { HttpsError, onCall } from 'firebase-functions/v2/https';
 import { onSchedule } from 'firebase-functions/v2/scheduler';
 import { getResend } from '../shared/clients';
 import { db, auth } from '../shared/firebase';
-import { FIRESTORE_REGION } from '../shared/regions';
+import { SCHEDULE_REGION } from '../shared/regions';
 import {
   assertFreshAppCheck,
   assertActiveChurchRole,
@@ -239,7 +239,7 @@ export const sendInvitation = onCall({ ...replayProtectedCallableOptions, secret
   return { success: true, invitationId: inviteRef.id, inviteUrl, emailSent: true };
 });
 
-export const cleanupExpiredInvitations = onSchedule({ schedule: 'every 24 hours', region: FIRESTORE_REGION }, async () => {
+export const cleanupExpiredInvitations = onSchedule({ schedule: 'every 24 hours', region: SCHEDULE_REGION }, async () => {
   const now = new Date();
   const snap = await db
     .collection('invitations')

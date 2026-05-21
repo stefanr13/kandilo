@@ -1,7 +1,7 @@
 import { getFirestore, FieldValue } from 'firebase-admin/firestore';
 import * as logger from 'firebase-functions/logger';
 import * as functionsV1 from 'firebase-functions/v1';
-import { FIRESTORE_REGION } from './shared/regions';
+import { AUTH_TRIGGER_REGION } from './shared/regions';
 
 const db = getFirestore();
 
@@ -10,7 +10,7 @@ const db = getFirestore();
  * registers via Firebase Auth. Uses the v1 auth trigger which works on the
  * standard Firebase Auth free tier (no Identity Platform required).
  */
-export const bootstrapUserProfileOnCreate = functionsV1.region(FIRESTORE_REGION).auth.user().onCreate(async (user) => {
+export const bootstrapUserProfileOnCreate = functionsV1.region(AUTH_TRIGGER_REGION).auth.user().onCreate(async (user) => {
   if (!user.email) {
     logger.info(`Skipped Firestore profile bootstrap for user without email ${user.uid}`);
     return;
