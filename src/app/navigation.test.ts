@@ -61,6 +61,10 @@ describe('app navigation', () => {
       pathname: '/join/invite-123',
       search: '?source=email',
     });
+    expect(parseExternalAppUrl('kandilo://app/join/invite-123?source=email')).toEqual({
+      pathname: '/join/invite-123',
+      search: '?source=email',
+    });
     expect(parseExternalAppUrl('kandilo://app/?giving=success')).toEqual({
       pathname: '/',
       search: '?giving=success',

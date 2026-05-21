@@ -105,9 +105,9 @@ In Xcode:
 
 ## 8. Universal Links
 
-The repo includes the well-known files, entitlements, and URL handling, but the published app-link files must be populated with final identifiers:
+The repo includes the well-known files, entitlements, custom URL scheme, and URL handling. The hosted files currently support Android debug app-link testing and custom-scheme email fallback, but final store builds still need production identifiers:
 
-- `public/.well-known/apple-app-site-association`: Apple Team ID and iOS bundle identifier.
-- `public/.well-known/assetlinks.json`: Android package name and release signing SHA-256 fingerprint.
+- `public/.well-known/apple-app-site-association`: replace `TODO_TEAM_ID` with the Apple Team ID for `com.kandilo.app`.
+- `public/.well-known/assetlinks.json`: add the Android release signing SHA-256 fingerprint for `com.kandilo.app`; the current fingerprint is the local debug keystore for pre-store testing.
 
 Deploy hosting after updating these files. This is needed for HTTPS invite links and payment return links to open the native app reliably.

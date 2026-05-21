@@ -2,8 +2,6 @@ import {
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
   signOut as firebaseSignOut,
-  sendPasswordResetEmail,
-  sendEmailVerification,
   signInWithPopup,
   GoogleAuthProvider,
   signInAnonymously,
@@ -13,6 +11,10 @@ import {
 import { Capacitor } from '@capacitor/core';
 import type { Language } from '../types';
 import { getLocalizedAuthError } from '../localization/extra';
+import {
+  sendEmailVerificationEmail as sendBrandedEmailVerification,
+  sendPasswordResetEmail as sendBrandedPasswordReset,
+} from './api/auth';
 import { auth } from './firebase/auth';
 
 const googleProvider = new GoogleAuthProvider();
@@ -28,7 +30,7 @@ export async function signUp(
 ): Promise<UserCredential> {
   const credential = await createUserWithEmailAndPassword(auth, email, password);
   await updateProfile(credential.user, { displayName });
-  await sendEmailVerification(credential.user);
+  await sendBrandedEmailVerification();
   const { createOrUpdateUserProfile } = await import('./db/profile');
   await createOrUpdateUserProfile(credential.user.uid, {
     email,
@@ -71,7 +73,7 @@ export async function signOut(): Promise<void> {
 }
 
 export async function resetPassword(email: string): Promise<void> {
-  return sendPasswordResetEmail(auth, email);
+  await sendBrandedPasswordReset(email);
 }
 
 export function getFirebaseAuthError(code: string, language: Language = 'English'): string {

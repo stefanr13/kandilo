@@ -32,3 +32,7 @@ export {
   generatePostContent,
   previewPostTranslations,
 } from './modules/ai';
+export {
+  sendEmailVerificationEmail,
+  sendPasswordResetEmail,
+} from './modules/authEmails';

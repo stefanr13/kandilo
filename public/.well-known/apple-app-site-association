@@ -4,7 +4,7 @@
     "details": [
       {
         "appID": "TODO_TEAM_ID.com.kandilo.app",
-        "paths": ["/join/*"]
+        "paths": ["/", "/join/*"]
       }
     ]
   }

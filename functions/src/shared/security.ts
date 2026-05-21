@@ -152,6 +152,22 @@ export function assertVerifiedNonAnonymousUser(
   }
 }
 
+export function assertNonAnonymousUser(
+  request: CallableRequest<unknown>,
+  errorMessage = 'A non-anonymous account is required.'
+): void {
+  hydrateFunctionsEmulatorTestAuth(request);
+
+  if (!request.auth) {
+    throw new HttpsError('unauthenticated', 'Must be signed in.');
+  }
+
+  const signInProvider = request.auth.token.firebase?.sign_in_provider;
+  if (signInProvider === 'anonymous') {
+    throw new HttpsError('permission-denied', errorMessage);
+  }
+}
+
 export function normalizeEmail(email: string): string {
   return email.trim().toLowerCase();
 }

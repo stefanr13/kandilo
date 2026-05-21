@@ -14,14 +14,21 @@ import {
   replayProtectedCallableOptions,
 } from '../shared/security';
 import { sanitizedErrorContext } from '../shared/logging';
-import { assertNonEmptyString, escapeHtml } from '../shared/validation';
+import { renderNewsletterEmail, renderParishNotificationEmail } from '../shared/emailTemplates';
+import { assertNonEmptyString } from '../shared/validation';
 
 const DEFAULT_APP_URL = 'https://app.kandilo.org';
+const DEFAULT_MOBILE_APP_URL = 'kandilo://app/';
 const NEWSLETTER_EMAIL_CLAIM_TIMEOUT_MS = 15 * 60 * 1000;
 const MAX_NEWSLETTER_EMAIL_RECIPIENTS = 1000;
+const MAX_NOTIFICATION_EMAIL_RECIPIENTS = 1000;
 
 function getAppUrl(): string {
   return process.env.APP_URL?.trim() || DEFAULT_APP_URL;
+}
+
+function getMobileAppUrl(): string {
+  return process.env.MOBILE_APP_URL?.trim() || DEFAULT_MOBILE_APP_URL;
 }
 
 export const onEventCreated = onDocumentCreated({ region: FIRESTORE_REGION, document: 'events/{eventId}' }, async (event) => {
@@ -135,6 +142,8 @@ async function fanOutPublishedNewsletter(
 
   try {
     const resend = getResend();
+    const churchDoc = await db.collection('churches').doc(churchId).get();
+    const churchName: string = churchDoc.data()?.name ?? 'your parish';
     const membersSnap = await db
       .collection('churches')
       .doc(churchId)
@@ -146,29 +155,24 @@ async function fanOutPublishedNewsletter(
     const allEmails = await getPrimaryEmailsForUids(uids);
     const emails = allEmails.slice(0, MAX_NEWSLETTER_EMAIL_RECIPIENTS);
 
-    const safeTitle = escapeHtml(title);
-    const safeExcerpt = escapeHtml(excerpt ?? '');
     const appUrl = getAppUrl();
-    const html = `
-      <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto;">
-        <h1 style="color: #800000;">${safeTitle}</h1>
-        <p style="color: #666;">${safeExcerpt}</p>
-        <a href="${appUrl}" style="display: inline-block; background: #800000; color: white; padding: 12px 24px; border-radius: 8px; text-decoration: none; font-weight: bold;">
-          Read in App
-        </a>
-        <p style="color: #aaa; font-size: 12px; margin-top: 24px;">
-          You are receiving this because you are a member of your parish on Kandilo.
-        </p>
-      </div>
-    `;
+    const mobileAppUrl = getMobileAppUrl();
+    const newsletterEmail = renderNewsletterEmail({
+      churchName,
+      title,
+      excerpt,
+      appUrl,
+      mobileAppUrl,
+    });
 
     for (let i = 0; i < emails.length; i += 50) {
       const batch = emails.slice(i, i + 50);
-      const response = await resend.batch.send(batch.map((email) => ({
+      const response = await resend.batch.send(batch.map((recipientEmail) => ({
         from: 'Kandilo <bulletin@kandilo.org>',
-        to: email,
-        subject: `New Bulletin: ${safeTitle}`,
-        html,
+        to: recipientEmail,
+        subject: newsletterEmail.subject,
+        html: newsletterEmail.html,
+        text: newsletterEmail.text,
       })));
       if (response.error) {
         console.error('Newsletter email provider rejected request.', {
@@ -220,7 +224,7 @@ export const onNewsletterPublished = onDocumentUpdated(
   }
 );
 
-export const sendPushNotification = onCall({ ...replayProtectedCallableOptions, secrets: [] }, async (request) => {
+export const sendPushNotification = onCall({ ...replayProtectedCallableOptions, secrets: ['RESEND_API_KEY'] }, async (request) => {
   assertFreshAppCheck(request);
   assertVerifiedNonAnonymousUser(request, 'A verified, non-anonymous account is required to send notifications.');
   await checkRateLimit(request.auth!.uid, 'sendPushNotification', 5);
@@ -251,14 +255,72 @@ export const sendPushNotification = onCall({ ...replayProtectedCallableOptions, 
     'Only active admins and priests can send notifications.'
   );
   const callerName: string = callerMembership.displayName ?? 'Parish Admin';
+  const churchDoc = await db.collection('churches').doc(churchId).get();
+  const churchName: string = churchDoc.data()?.name ?? 'your parish';
 
   await notifyChurchMembers(churchId, title, body, {
     type: 'manual',
     sentBy: request.auth!.uid,
   }, targetRoles);
 
-  await db.collection('notifications').add({
+  let emailSent = false;
+  let emailRecipientCount = 0;
+  let emailRecipientTruncated = false;
+  let emailSendError: string | undefined;
+
+  try {
+    const resend = getResend();
+    let membersQuery: FirebaseFirestore.Query = db
+      .collection('churches')
+      .doc(churchId)
+      .collection('members')
+      .where('status', '==', 'active');
+
+    membersQuery = membersQuery.where('role', 'in', targetRoles);
+    const membersSnap = await membersQuery.get();
+    const allEmails = await getPrimaryEmailsForUids(membersSnap.docs.map((doc) => doc.id));
+    const emails = allEmails.slice(0, MAX_NOTIFICATION_EMAIL_RECIPIENTS);
+    const appUrl = getAppUrl();
+    const mobileAppUrl = getMobileAppUrl();
+    const notificationEmail = renderParishNotificationEmail({
+      churchName,
+      title,
+      body,
+      senderName: callerName,
+      audienceRoles: targetRoles,
+      appUrl,
+      mobileAppUrl,
+    });
+
+    for (let i = 0; i < emails.length; i += 50) {
+      const batch = emails.slice(i, i + 50);
+      const response = await resend.batch.send(batch.map((email) => ({
+        from: 'Kandilo <notifications@kandilo.org>',
+        to: email,
+        subject: notificationEmail.subject,
+        html: notificationEmail.html,
+        text: notificationEmail.text,
+      })));
+      if (response.error) {
+        console.error('Notification email provider rejected request.', {
+          errorName: response.error.name ?? 'ResendError',
+          batchSize: batch.length,
+        });
+        throw new HttpsError('internal', 'Notification email could not be sent.');
+      }
+    }
+
+    emailSent = emails.length > 0;
+    emailRecipientCount = emails.length;
+    emailRecipientTruncated = allEmails.length > emails.length;
+  } catch (err) {
+    console.error('Notification email send failed:', sanitizedErrorContext(err));
+    emailSendError = 'notification_email_failed';
+  }
+
+  const notificationRecord: FirebaseFirestore.DocumentData = {
     churchId,
+    churchName,
     title,
     body,
     type: 'manual',
@@ -266,8 +328,17 @@ export const sendPushNotification = onCall({ ...replayProtectedCallableOptions, 
     sentAt: FieldValue.serverTimestamp(),
     sentBy: request.auth!.uid,
     sentByName: callerName,
+    emailSent,
+    emailRecipientCount,
+    emailRecipientTruncated,
     deliveryStats: { sent: 0, failed: 0, opened: 0 },
-  });
+  };
+
+  if (emailSendError) {
+    notificationRecord.emailSendError = emailSendError;
+  }
+
+  await db.collection('notifications').add(notificationRecord);
 
   return { success: true };
 });

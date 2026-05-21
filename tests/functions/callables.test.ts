@@ -430,6 +430,53 @@ describe('Cloud Functions emulator', () => {
     );
   });
 
+  it('sends branded auth action emails and avoids password-reset account enumeration', async () => {
+    await adminAuth.createUser({
+      uid: 'unverified-1',
+      email: 'unverified@example.com',
+      emailVerified: false,
+      password: PASSWORD,
+      displayName: 'Unverified One',
+    });
+
+    await expect(
+      callCallable(
+        'sendEmailVerificationEmail',
+        {},
+        { uid: 'unverified-1', email: 'unverified@example.com', emailVerified: false }
+      )
+    ).resolves.toMatchObject({
+      success: true,
+      emailSent: true,
+    });
+
+    await expect(
+      callCallable(
+        'sendEmailVerificationEmail',
+        {},
+        { uid: 'member-1', email: 'member@example.com' }
+      )
+    ).resolves.toMatchObject({
+      success: true,
+      emailSent: false,
+      alreadyVerified: true,
+    });
+
+    await expect(
+      callCallable('sendPasswordResetEmail', { email: 'member@example.com' })
+    ).resolves.toMatchObject({
+      success: true,
+      emailSent: true,
+    });
+
+    await expect(
+      callCallable('sendPasswordResetEmail', { email: 'missing@example.com' })
+    ).resolves.toMatchObject({
+      success: true,
+      emailSent: false,
+    });
+  });
+
   it('sends member invitations from admins and blocks admin invitations unless caller is priest', async () => {
     const result = await callCallable<
       { churchId: string; inviteeEmail: string; role?: 'member' | 'admin' },
@@ -934,6 +981,10 @@ describe('Cloud Functions emulator', () => {
       sentBy: 'admin-1',
       sentByName: 'admin-1',
       targetRoles: ['member', 'admin'],
+      churchName: 'St. Nicholas',
+      emailSent: true,
+      emailRecipientCount: 2,
+      emailRecipientTruncated: false,
     });
 
     const eventNotification = await waitFor(

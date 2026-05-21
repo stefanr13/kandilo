@@ -49,6 +49,20 @@ describe('callFunction', () => {
     expect(callable).toHaveBeenCalledWith({ churchId: 'church-1' });
   });
 
+  it('uses limited-use App Check tokens for branded auth emails', async () => {
+    const callable = createCallableMock({ success: true });
+    httpsCallableMock.mockReturnValue(callable);
+
+    await expect(callFunction('sendPasswordResetEmail', { email: 'user@example.com' })).resolves.toEqual({
+      success: true,
+    });
+
+    expect(httpsCallableMock).toHaveBeenCalledWith(functions, 'sendPasswordResetEmail', {
+      limitedUseAppCheckTokens: true,
+    });
+    expect(callable).toHaveBeenCalledWith({ email: 'user@example.com' });
+  });
+
   it('does not request replay protection for regular functions', async () => {
     const callable = createCallableMock({ ok: true });
     httpsCallableMock.mockReturnValue(callable);

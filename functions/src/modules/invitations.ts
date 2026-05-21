@@ -13,13 +13,19 @@ import {
   replayProtectedCallableOptions,
 } from '../shared/security';
 import { sanitizedErrorContext } from '../shared/logging';
-import { assertEmail, assertNonEmptyString, escapeHtml } from '../shared/validation';
+import { renderInvitationEmail } from '../shared/emailTemplates';
+import { assertEmail, assertNonEmptyString } from '../shared/validation';
 
 const DEFAULT_APP_URL = 'https://app.kandilo.org';
+const DEFAULT_MOBILE_APP_URL = 'kandilo://app/';
 const MAX_SELF_JOIN_CHURCHES = 3;
 
 function getAppUrl(): string {
   return process.env.APP_URL?.trim() || DEFAULT_APP_URL;
+}
+
+function getMobileAppUrl(): string {
+  return process.env.MOBILE_APP_URL?.trim() || DEFAULT_MOBILE_APP_URL;
 }
 
 function getChurchLocation(church: DocumentData): string {
@@ -282,27 +288,29 @@ export const sendInvitation = onCall({ ...replayProtectedCallableOptions, secret
 
   const appUrl = getAppUrl();
   const inviteUrl = `${appUrl}/join/${inviteRef.id}`;
+  const mobileInviteUrl = `${getMobileAppUrl().replace(/\/$/, '')}/join/${inviteRef.id}`;
 
   try {
     const resend = getResend();
-    const safeChurchName = escapeHtml(churchName);
-    const safeInviteUrl = escapeHtml(inviteUrl);
+    const expiresLabel = expiresAt.toLocaleDateString('en-US', {
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+    });
+    const email = renderInvitationEmail({
+      churchName,
+      inviteUrl,
+      mobileInviteUrl,
+      role,
+      invitedByName: callerMembership.displayName ?? '',
+      expiresLabel,
+    });
     const response = await resend.emails.send({
       from: 'Kandilo <invite@kandilo.org>',
       to: normalizedInviteeEmail,
-      subject: `You've been invited to ${safeChurchName} on Kandilo`,
-      html: `
-        <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto;">
-          <h1 style="color: #800000;">You're invited!</h1>
-          <p>You've been invited to join <strong>${safeChurchName}</strong> on Kandilo, the digital platform for Orthodox parish communities.</p>
-          <a href="${safeInviteUrl}" style="display: inline-block; background: #800000; color: white; padding: 12px 24px; border-radius: 8px; text-decoration: none; font-weight: bold; margin: 16px 0;">
-            Accept Invitation
-          </a>
-          <p style="color: #aaa; font-size: 12px; margin-top: 24px;">
-            This invitation expires in 14 days. If you did not expect this, you can safely ignore this email.
-          </p>
-        </div>
-      `,
+      subject: email.subject,
+      html: email.html,
+      text: email.text,
     });
     if (response.error) {
       console.error('Invitation email provider rejected request.', {

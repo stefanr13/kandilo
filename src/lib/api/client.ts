@@ -9,6 +9,8 @@ const REPLAY_PROTECTED_FUNCTIONS = new Set([
   'joinChurch',
   'promoteSuperAdmin',
   'sendInvitation',
+  'sendEmailVerificationEmail',
+  'sendPasswordResetEmail',
   'sendPushNotification',
   'setChurchActiveState',
   'updateChurchAsSuperAdmin',

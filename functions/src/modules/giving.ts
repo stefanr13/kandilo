@@ -15,12 +15,12 @@ import {
   replayProtectedCallableOptions,
 } from '../shared/security';
 import { sanitizedErrorContext } from '../shared/logging';
+import { renderDonationReceiptEmail } from '../shared/emailTemplates';
 import {
   assertBoolean,
   assertIntegerInRange,
   assertMaxLength,
   assertNonEmptyString,
-  escapeHtml,
 } from '../shared/validation';
 
 const DEFAULT_APP_URL = 'https://app.kandilo.org';
@@ -441,42 +441,23 @@ export const onGivingCompleted = onDocumentUpdated(
       }).format(amount);
 
       const resend = getResend();
-      const safeName = escapeHtml(displayName);
-      const safeChurch = escapeHtml(churchName);
-      const safePurpose = escapeHtml(purpose ?? 'General Fund');
       const dateStr = new Date().toLocaleDateString('en-US', {
         year: 'numeric', month: 'long', day: 'numeric',
+      });
+      const emailMessage = renderDonationReceiptEmail({
+        displayName,
+        churchName,
+        formattedAmount: formatted,
+        purpose: purpose ?? 'General Fund',
+        dateLabel: dateStr,
+        givingId: givingRef.id,
       });
       const response = await resend.emails.send({
         from: 'Kandilo <giving@kandilo.org>',
         to: email,
-        subject: `Donation Receipt - ${safeChurch}`,
-        html: `
-          <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto;">
-            <h1 style="color: #800000;">Thank you, ${safeName}!</h1>
-            <p>Your donation to <strong>${safeChurch}</strong> has been received.</p>
-            <table style="width: 100%; border-collapse: collapse; margin: 24px 0;">
-              <tr>
-                <td style="padding: 8px; border-bottom: 1px solid #eee; color: #666;">Amount</td>
-                <td style="padding: 8px; border-bottom: 1px solid #eee; font-weight: bold;">${formatted}</td>
-              </tr>
-              <tr>
-                <td style="padding: 8px; border-bottom: 1px solid #eee; color: #666;">Purpose</td>
-                <td style="padding: 8px; border-bottom: 1px solid #eee;">${safePurpose}</td>
-              </tr>
-              <tr>
-                <td style="padding: 8px; color: #666;">Date</td>
-                <td style="padding: 8px;">${dateStr}</td>
-              </tr>
-            </table>
-            <p style="color: #666; font-size: 14px;">
-              This email serves as your donation receipt. ${safeChurch} is a registered non-profit organization.
-            </p>
-            <p style="color: #aaa; font-size: 12px; margin-top: 24px;">
-              Questions? Contact your parish office directly.
-            </p>
-          </div>
-        `,
+        subject: emailMessage.subject,
+        html: emailMessage.html,
+        text: emailMessage.text,
       });
       if (response.error) {
         console.error('Giving receipt email provider rejected request.', {
