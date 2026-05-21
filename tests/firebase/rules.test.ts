@@ -15,6 +15,7 @@ import {
   setDoc,
   Timestamp,
   updateDoc,
+  writeBatch,
 } from 'firebase/firestore';
 import { getMetadata, ref, uploadString } from 'firebase/storage';
 
@@ -252,22 +253,101 @@ describe('Firestore rules', () => {
     })));
   });
 
-  it('allows members to leave mirrored memberships but not self-create memberships', async () => {
+  it('allows verified users to join and leave churches as members only', async () => {
+    await testEnv.withSecurityRulesDisabled(async (context) => {
+      const db = dbFor(context);
+      await Promise.all([
+        setDoc(doc(db, 'churches/church-2'), {
+          ...ACTIVE_CHURCH,
+          name: 'St. Sava',
+          city: 'Phoenix',
+          state: 'AZ',
+          location: 'Phoenix, AZ',
+        }),
+        setDoc(doc(db, 'churches/inactive-church'), {
+          ...ACTIVE_CHURCH,
+          name: 'Inactive Parish',
+          isActive: false,
+        }),
+        setDoc(doc(db, 'churches/church-3'), {
+          ...ACTIVE_CHURCH,
+          name: 'Escalated Church',
+        }),
+      ]);
+    });
+
     const memberDb = dbFor(verifiedContext('member-1', 'member@example.com'));
-    const memberRef = doc(memberDb, `churches/${CHURCH_ID}/members/member-1`);
-    const fanoutRef = doc(memberDb, `users/member-1/churchMemberships/${CHURCH_ID}`);
-
-    await assertFails(setDoc(doc(memberDb, 'churches/church-2/members/member-1'), memberDoc({
-      uid: 'member-1',
+    const selfJoinBatch = writeBatch(memberDb);
+    selfJoinBatch.set(doc(memberDb, 'churches/church-2/members/member-1'), {
+      userId: 'member-1',
+      churchId: 'church-2',
+      role: 'member',
+      status: 'active',
+      displayName: 'Member One',
       email: 'member@example.com',
+      photoURL: '',
+      joinedAt: serverTimestamp(),
+      showInDirectory: true,
+    });
+    selfJoinBatch.set(doc(memberDb, 'users/member-1/churchMemberships/church-2'), {
+      churchId: 'church-2',
+      churchName: 'St. Sava',
+      location: 'Phoenix, AZ',
+      imageURL: 'https://example.com/church.jpg',
       role: 'member',
-    })));
-    await assertFails(setDoc(doc(memberDb, 'users/member-1/churchMemberships/church-2'), membershipFanout({
-      role: 'member',
-    })));
+      status: 'active',
+      joinedAt: serverTimestamp(),
+    });
+    await assertSucceeds(selfJoinBatch.commit());
 
-    await assertSucceeds(deleteDoc(memberRef));
-    await assertSucceeds(deleteDoc(fanoutRef));
+    const priestEscalationBatch = writeBatch(memberDb);
+    priestEscalationBatch.set(doc(memberDb, 'churches/church-3/members/member-1'), {
+      userId: 'member-1',
+      churchId: 'church-3',
+      role: 'priest',
+      status: 'active',
+      displayName: 'Member One',
+      email: 'member@example.com',
+      photoURL: '',
+      joinedAt: serverTimestamp(),
+      showInDirectory: true,
+    });
+    priestEscalationBatch.set(doc(memberDb, 'users/member-1/churchMemberships/church-3'), {
+      churchId: 'church-3',
+      churchName: 'Escalated Church',
+      location: 'Escalated',
+      imageURL: '',
+      role: 'priest',
+      status: 'active',
+      joinedAt: serverTimestamp(),
+    });
+    await assertFails(priestEscalationBatch.commit());
+
+    const inactiveJoinBatch = writeBatch(memberDb);
+    inactiveJoinBatch.set(doc(memberDb, 'churches/inactive-church/members/member-1'), {
+      userId: 'member-1',
+      churchId: 'inactive-church',
+      role: 'member',
+      status: 'active',
+      displayName: 'Member One',
+      email: 'member@example.com',
+      photoURL: '',
+      joinedAt: serverTimestamp(),
+      showInDirectory: true,
+    });
+    inactiveJoinBatch.set(doc(memberDb, 'users/member-1/churchMemberships/inactive-church'), {
+      churchId: 'inactive-church',
+      churchName: 'Inactive Parish',
+      location: 'Chicago, IL',
+      imageURL: 'https://example.com/church.jpg',
+      role: 'member',
+      status: 'active',
+      joinedAt: serverTimestamp(),
+    });
+    await assertFails(inactiveJoinBatch.commit());
+
+    await assertSucceeds(deleteDoc(doc(memberDb, 'churches/church-2/members/member-1')));
+    await assertSucceeds(deleteDoc(doc(memberDb, 'users/member-1/churchMemberships/church-2')));
   });
 
   it('enforces invitation and giving read/write boundaries', async () => {

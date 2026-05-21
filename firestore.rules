@@ -152,6 +152,71 @@ service cloud.firestore {
         && validOptionalBool(request.resource.data.showInDirectory);
     }
 
+    function isActiveChurch(churchId) {
+      return exists(/databases/$(database)/documents/churches/$(churchId))
+        && get(/databases/$(database)/documents/churches/$(churchId)).data.isActive == true;
+    }
+
+    function pairedSelfMemberAfter(churchId, userId) {
+      return existsAfter(/databases/$(database)/documents/churches/$(churchId)/members/$(userId))
+        && getAfter(/databases/$(database)/documents/churches/$(churchId)/members/$(userId)).data.role == 'member'
+        && getAfter(/databases/$(database)/documents/churches/$(churchId)/members/$(userId)).data.status == 'active';
+    }
+
+    function pairedSelfMembershipFanoutAfter(churchId, userId) {
+      return existsAfter(/databases/$(database)/documents/users/$(userId)/churchMemberships/$(churchId))
+        && getAfter(/databases/$(database)/documents/users/$(userId)/churchMemberships/$(churchId)).data.role == 'member'
+        && getAfter(/databases/$(database)/documents/users/$(userId)/churchMemberships/$(churchId)).data.status == 'active';
+    }
+
+    function ownerMayCreateMember(userId, churchId) {
+      return isOwner(userId)
+        && isActiveChurch(churchId)
+        && pairedSelfMembershipFanoutAfter(churchId, userId)
+        && request.resource.data.keys().hasOnly([
+          'userId',
+          'churchId',
+          'role',
+          'status',
+          'displayName',
+          'email',
+          'photoURL',
+          'joinedAt',
+          'showInDirectory',
+        ])
+        && request.resource.data.userId == userId
+        && request.resource.data.churchId == churchId
+        && request.resource.data.role == 'member'
+        && request.resource.data.status == 'active'
+        && request.resource.data.email == request.auth.token.email
+        && validString(request.resource.data.displayName, 120)
+        && validOptionalUrl(request.resource.data.photoURL)
+        && request.resource.data.joinedAt == request.time
+        && request.resource.data.showInDirectory is bool;
+    }
+
+    function ownerMayCreateMembershipFanout(userId, churchId) {
+      return isOwner(userId)
+        && isActiveChurch(churchId)
+        && pairedSelfMemberAfter(churchId, userId)
+        && request.resource.data.keys().hasOnly([
+          'churchId',
+          'churchName',
+          'location',
+          'imageURL',
+          'role',
+          'status',
+          'joinedAt',
+        ])
+        && request.resource.data.churchId == churchId
+        && request.resource.data.role == 'member'
+        && request.resource.data.status == 'active'
+        && validString(request.resource.data.churchName, 160)
+        && validString(request.resource.data.location, 160)
+        && validOptionalUrl(request.resource.data.imageURL)
+        && request.resource.data.joinedAt == request.time;
+    }
+
     function adminMayUpdateMemberStatusOnly(userId) {
       return !isOwner(userId)
         && resource.data.role == 'member'
@@ -422,8 +487,7 @@ service cloud.firestore {
 
       match /churchMemberships/{churchId} {
         allow read: if (isVerifiedNonAnonymous() && isOwner(userId)) || isSuperAdmin();
-        // Membership fan-out writes are handled by trusted backend code only.
-        allow create: if false;
+        allow create: if isVerifiedNonAnonymous() && ownerMayCreateMembershipFanout(userId, churchId);
         allow delete: if isVerifiedNonAnonymous() && isOwner(userId);
         allow update: if isVerifiedNonAnonymous() && (
           (isPriest(churchId) && priestMayUpdateMembershipFanout(userId))
@@ -455,8 +519,8 @@ service cloud.firestore {
             && resource.data.status == 'active'
             && resource.data.showInDirectory == true
           );
-        // Membership documents are created only by trusted backend code.
-        allow create: if false;
+        // Parish users may self-join active churches as members only.
+        allow create: if isVerifiedNonAnonymous() && ownerMayCreateMember(userId, churchId);
         // Role changes are priest-only, but client-side promotion to priest is blocked.
         // Admins can suspend/reinstate members only.
         // Members can update their own directory profile fields.

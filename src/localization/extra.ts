@@ -47,6 +47,10 @@ export interface ExtraCopy {
     invitationRequired: string;
     askInvite: string;
     inviteOnly: string;
+    joinChurch: string;
+    joiningChurch: string;
+    joinedChurch: string;
+    unableJoinChurch: string;
     emailManaged: string;
     leave: string;
     confirm: string;
@@ -349,14 +353,18 @@ const ENGLISH: ExtraCopy = {
     discoverChurches: 'Discover Churches',
     noMemberships: 'You do not have any church memberships yet.',
     noMembershipsYet: "You haven't joined any churches yet.",
-    membershipInviteOnly: 'Memberships are invitation-only. Contact a parish admin or priest to be added.',
+    membershipInviteOnly: 'Join any listed church as a parish member. Priests and admins can still assign elevated roles.',
     loadingChurches: 'Loading churches...',
     unableLoadChurches: 'Unable to load churches right now.',
-    noPublicChurches: 'No public churches are listed right now. Ask your parish office for an invitation.',
+    noPublicChurches: 'No public churches are listed right now.',
     memberOfAllChurches: "You're a member of all available churches.",
-    invitationRequired: 'Invitation Required',
-    askInvite: 'Ask a priest or parish admin to invite your email address.',
-    inviteOnly: 'Invite Only',
+    invitationRequired: 'Open Membership',
+    askInvite: 'Join this church to see parish updates and participate as a member.',
+    inviteOnly: 'Available',
+    joinChurch: 'Join',
+    joiningChurch: 'Joining...',
+    joinedChurch: 'Church joined.',
+    unableJoinChurch: 'Unable to join this church right now.',
     emailManaged: 'Email is managed by your sign-in provider.',
     leave: 'Leave',
     confirm: 'Confirm',
@@ -657,14 +665,18 @@ const SR_LAT: ExtraCopy = {
     discoverChurches: 'Pronađi crkve',
     noMemberships: 'Još nemate crkvena članstva.',
     noMembershipsYet: 'Još se niste pridružili nijednoj crkvi.',
-    membershipInviteOnly: 'Članstvo je samo uz pozivnicu. Kontaktirajte administratora ili sveštenika.',
+    membershipInviteOnly: 'Pridružite se bilo kojoj navedenoj crkvi kao parohijski član. Sveštenici i administratori mogu dodeliti više uloge.',
     loadingChurches: 'Učitavanje crkava...',
     unableLoadChurches: 'Trenutno nije moguće učitati crkve.',
-    noPublicChurches: 'Trenutno nema javno navedenih crkava. Pitajte parohijsku kancelariju za pozivnicu.',
+    noPublicChurches: 'Trenutno nema javno navedenih crkava.',
     memberOfAllChurches: 'Član ste svih dostupnih crkava.',
-    invitationRequired: 'Pozivnica potrebna',
-    askInvite: 'Zamolite sveštenika ili administratora da pozove vašu email adresu.',
-    inviteOnly: 'Samo uz poziv',
+    invitationRequired: 'Otvoreno članstvo',
+    askInvite: 'Pridružite se ovoj crkvi da vidite parohijske objave i učestvujete kao član.',
+    inviteOnly: 'Dostupno',
+    joinChurch: 'Pridruži se',
+    joiningChurch: 'Pridruživanje...',
+    joinedChurch: 'Pridružili ste se crkvi.',
+    unableJoinChurch: 'Trenutno nije moguće pridružiti se ovoj crkvi.',
     emailManaged: 'Email se upravlja preko vašeg načina prijave.',
     leave: 'Napusti',
     confirm: 'Potvrdi',

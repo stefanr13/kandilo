@@ -18,7 +18,7 @@ import { Language, ChurchMembership } from '../types';
 import { TRANSLATIONS } from '../translations';
 import { getExtraCopy } from '../localization/extra';
 import { getFirebaseAuthError, signOut } from '../lib/auth';
-import { leaveChurch, listAllChurches } from '../lib/db/churches';
+import { joinChurch, leaveChurch, listAllChurches } from '../lib/db/churches';
 import { getUserProfile, updateUserAvatar, updateUserProfile } from '../lib/db/profile';
 import { uploadUserAvatar } from '../lib/storage/uploads';
 
@@ -44,6 +44,7 @@ export default function ProfileScreen({ onBack, language, onLanguageChange, user
   const [allChurches, setAllChurches] = useState<ChurchSummary[]>([]);
   const [churchesLoading, setChurchesLoading] = useState(true);
   const [churchesError, setChurchesError] = useState('');
+  const [joiningId, setJoiningId] = useState<string | null>(null);
   const [leavingId, setLeavingId] = useState<string | null>(null);
   const [confirmLeaveId, setConfirmLeaveId] = useState<string | null>(null);
   const [profileSaving, setProfileSaving] = useState(false);
@@ -81,6 +82,25 @@ export default function ProfileScreen({ onBack, language, onLanguageChange, user
       console.error('Failed to leave church:', err);
     } finally {
       setLeavingId(null);
+    }
+  };
+
+  const handleJoin = async (church: ChurchSummary) => {
+    if (!user || !user.email) {
+      setProfileMessage(extra.unableJoinChurch);
+      return;
+    }
+
+    setJoiningId(church.id);
+    setProfileMessage('');
+    try {
+      await joinChurch(user.uid, formData.fullName || user.displayName || '', user.email, avatarUrl, church);
+      setProfileMessage(extra.joinedChurch);
+    } catch (err) {
+      console.error('Failed to join church:', err);
+      setProfileMessage(extra.unableJoinChurch);
+    } finally {
+      setJoiningId(null);
     }
   };
 
@@ -383,9 +403,14 @@ export default function ProfileScreen({ onBack, language, onLanguageChange, user
                     <p className="text-[9px] font-bold text-gray-400 flex items-center gap-1 mt-0.5"><MapPin size={9} />{church.location}</p>
                     {renderInviteOnlyMeta(church, 9)}
                   </div>
-                  <span className="rounded-xl bg-amber-50 px-3 py-1.5 text-[9px] font-black uppercase tracking-widest text-amber-800">
-                    {extra.inviteOnly}
-                  </span>
+                  <button
+                    type="button"
+                    onClick={() => void handleJoin(church)}
+                    disabled={joiningId === church.id}
+                    className="rounded-xl bg-[#800000] px-3 py-2 text-[9px] font-black uppercase tracking-widest text-white transition-colors hover:bg-[#8D1212] disabled:opacity-60"
+                  >
+                    {joiningId === church.id ? extra.joiningChurch : extra.joinChurch}
+                  </button>
                 </div>
               ))}
             </div>
@@ -605,9 +630,14 @@ export default function ProfileScreen({ onBack, language, onLanguageChange, user
                   </p>
                   {renderInviteOnlyMeta(church, 10)}
                 </div>
-                <span className="rounded-xl bg-amber-50 px-3 py-1.5 text-[9px] font-black uppercase tracking-widest text-amber-800">
-                  {extra.inviteOnly}
-                </span>
+                <button
+                  type="button"
+                  onClick={() => void handleJoin(church)}
+                  disabled={joiningId === church.id}
+                  className="rounded-xl bg-[#800000] px-3 py-2 text-[9px] font-black uppercase tracking-widest text-white transition-colors hover:bg-[#8D1212] disabled:opacity-60"
+                >
+                  {joiningId === church.id ? extra.joiningChurch : extra.joinChurch}
+                </button>
               </div>
             ))}
           </div>
@@ -615,7 +645,7 @@ export default function ProfileScreen({ onBack, language, onLanguageChange, user
           <div className="pt-4 space-y-4">
             {profileMessage && (
               <p className={`text-sm font-bold ${
-                [extra.profileUpdated, extra.profilePhotoUpdated, extra.passwordUpdated].includes(profileMessage)
+                [extra.profileUpdated, extra.profilePhotoUpdated, extra.passwordUpdated, extra.joinedChurch].includes(profileMessage)
                   ? 'text-emerald-600'
                   : 'text-red-500'
               }`}>

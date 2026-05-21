@@ -6,6 +6,7 @@ import {
   limit,
   onSnapshot,
   query,
+  serverTimestamp,
   updateDoc,
   where,
   writeBatch,
@@ -34,13 +35,38 @@ export async function getChurchById(churchId: string): Promise<ChurchSummary | n
 }
 
 export async function joinChurch(
-  _uid: string,
-  _displayName: string,
-  _email: string,
-  _photoURL: string,
-  _church: ChurchSummary
+  uid: string,
+  displayName: string,
+  email: string,
+  photoURL: string,
+  church: ChurchSummary
 ): Promise<void> {
-  throw new Error('Church membership is invitation-only. Ask a parish admin or priest to invite you.');
+  const memberName = displayName.trim() || email;
+  const batch = writeBatch(db);
+  const joinedAt = serverTimestamp();
+
+  batch.set(doc(db, 'churches', church.id, 'members', uid), {
+    userId: uid,
+    churchId: church.id,
+    role: 'member',
+    status: 'active',
+    displayName: memberName,
+    email,
+    photoURL,
+    joinedAt,
+    showInDirectory: true,
+  });
+  batch.set(doc(db, 'users', uid, 'churchMemberships', church.id), {
+    churchId: church.id,
+    churchName: church.name,
+    location: church.location,
+    imageURL: church.imageURL,
+    role: 'member',
+    status: 'active',
+    joinedAt,
+  });
+
+  await batch.commit();
 }
 
 /**
