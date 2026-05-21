@@ -6,6 +6,7 @@ const REPLAY_PROTECTED_FUNCTIONS = new Set([
   'assignChurchMembershipAsSuperAdmin',
   'createChurch',
   'createStripeCheckoutSession',
+  'joinChurch',
   'promoteSuperAdmin',
   'sendInvitation',
   'sendPushNotification',

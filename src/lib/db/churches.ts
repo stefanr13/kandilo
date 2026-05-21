@@ -6,7 +6,6 @@ import {
   limit,
   onSnapshot,
   query,
-  serverTimestamp,
   updateDoc,
   where,
   writeBatch,
@@ -32,41 +31,6 @@ export async function getChurchById(churchId: string): Promise<ChurchSummary | n
   }
 
   return mapChurchSummary(snapshot.id, snapshot.data());
-}
-
-export async function joinChurch(
-  uid: string,
-  displayName: string,
-  email: string,
-  photoURL: string,
-  church: ChurchSummary
-): Promise<void> {
-  const memberName = displayName.trim() || email;
-  const batch = writeBatch(db);
-  const joinedAt = serverTimestamp();
-
-  batch.set(doc(db, 'churches', church.id, 'members', uid), {
-    userId: uid,
-    churchId: church.id,
-    role: 'member',
-    status: 'active',
-    displayName: memberName,
-    email,
-    photoURL,
-    joinedAt,
-    showInDirectory: true,
-  });
-  batch.set(doc(db, 'users', uid, 'churchMemberships', church.id), {
-    churchId: church.id,
-    churchName: church.name,
-    location: church.location,
-    imageURL: church.imageURL,
-    role: 'member',
-    status: 'active',
-    joinedAt,
-  });
-
-  await batch.commit();
 }
 
 /**

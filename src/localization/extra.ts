@@ -51,6 +51,7 @@ export interface ExtraCopy {
     joiningChurch: string;
     joinedChurch: string;
     unableJoinChurch: string;
+    churchLimitReached: string;
     emailManaged: string;
     leave: string;
     confirm: string;
@@ -365,6 +366,7 @@ const ENGLISH: ExtraCopy = {
     joiningChurch: 'Joining...',
     joinedChurch: 'Church joined.',
     unableJoinChurch: 'Unable to join this church right now.',
+    churchLimitReached: 'You can join up to 3 churches. Leave a church before joining another.',
     emailManaged: 'Email is managed by your sign-in provider.',
     leave: 'Leave',
     confirm: 'Confirm',
@@ -677,6 +679,7 @@ const SR_LAT: ExtraCopy = {
     joiningChurch: 'Pridruživanje...',
     joinedChurch: 'Pridružili ste se crkvi.',
     unableJoinChurch: 'Trenutno nije moguće pridružiti se ovoj crkvi.',
+    churchLimitReached: 'Možete se pridružiti najviše 3 crkve. Napustite jednu crkvu pre pridruživanja drugoj.',
     emailManaged: 'Email se upravlja preko vašeg načina prijave.',
     leave: 'Napusti',
     confirm: 'Potvrdi',

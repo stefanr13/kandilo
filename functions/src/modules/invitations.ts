@@ -1,4 +1,4 @@
-import { FieldValue } from 'firebase-admin/firestore';
+import { DocumentData, FieldValue } from 'firebase-admin/firestore';
 import { HttpsError, onCall } from 'firebase-functions/v2/https';
 import { onSchedule } from 'firebase-functions/v2/scheduler';
 import { getResend } from '../shared/clients';
@@ -16,10 +16,103 @@ import { sanitizedErrorContext } from '../shared/logging';
 import { assertEmail, assertNonEmptyString, escapeHtml } from '../shared/validation';
 
 const DEFAULT_APP_URL = 'https://app.kandilo.org';
+const MAX_SELF_JOIN_CHURCHES = 3;
 
 function getAppUrl(): string {
   return process.env.APP_URL?.trim() || DEFAULT_APP_URL;
 }
+
+function getChurchLocation(church: DocumentData): string {
+  return (
+    [church.city, church.state].filter((value) => typeof value === 'string' && value).join(', ') ||
+    church.location ||
+    ''
+  );
+}
+
+export const joinChurch = onCall({ ...replayProtectedCallableOptions, secrets: [] }, async (request) => {
+  assertFreshAppCheck(request);
+  assertVerifiedNonAnonymousUser(request, 'A verified, non-anonymous account is required to join a church.');
+
+  const { churchId: rawChurchId } = request.data as { churchId: unknown };
+  const churchId = assertNonEmptyString(rawChurchId, 128, 'churchId');
+  const uid = request.auth!.uid;
+
+  const [churchDoc, userRecord, existingMember] = await Promise.all([
+    db.collection('churches').doc(churchId).get(),
+    auth.getUser(uid),
+    db.collection('churches').doc(churchId).collection('members').doc(uid).get(),
+  ]);
+
+  if (!churchDoc.exists) {
+    throw new HttpsError('not-found', 'Church not found.');
+  }
+  const church = churchDoc.data()!;
+  if (church.isActive === false) {
+    throw new HttpsError('failed-precondition', 'This church is not currently accepting memberships.');
+  }
+
+  if (existingMember.exists) {
+    if (existingMember.data()?.status !== 'active') {
+      throw new HttpsError('failed-precondition', 'This membership is not active.');
+    }
+    return { success: true, alreadyMember: true };
+  }
+
+  await checkRateLimit(uid, 'joinChurch', 6, 60 * 60 * 1000);
+
+  const activeMembershipsSnap = await db
+    .collection('users')
+    .doc(uid)
+    .collection('churchMemberships')
+    .where('status', '==', 'active')
+    .limit(MAX_SELF_JOIN_CHURCHES)
+    .get();
+
+  if (activeMembershipsSnap.size >= MAX_SELF_JOIN_CHURCHES) {
+    throw new HttpsError(
+      'resource-exhausted',
+      'You can join up to 3 churches. Leave a church before joining another.'
+    );
+  }
+
+  const email = userRecord.email ?? request.auth!.token.email;
+  if (!email) {
+    throw new HttpsError('failed-precondition', 'A primary email address is required to join a church.');
+  }
+
+  const now = FieldValue.serverTimestamp();
+  const batch = db.batch();
+  const displayName = userRecord.displayName ?? email;
+  const photoURL = userRecord.photoURL ?? '';
+  const location = getChurchLocation(church);
+
+  batch.set(db.collection('churches').doc(churchId).collection('members').doc(uid), {
+    userId: uid,
+    churchId,
+    role: 'member',
+    status: 'active',
+    displayName,
+    email,
+    photoURL,
+    joinedAt: now,
+    showInDirectory: true,
+  });
+
+  batch.set(db.collection('users').doc(uid).collection('churchMemberships').doc(churchId), {
+    churchId,
+    churchName: church.name ?? '',
+    location,
+    imageURL: church.imageURL ?? '',
+    role: 'member',
+    status: 'active',
+    joinedAt: now,
+  });
+
+  await batch.commit();
+
+  return { success: true };
+});
 
 export const acceptInvitation = onCall({ ...replayProtectedCallableOptions, secrets: [] }, async (request) => {
   assertFreshAppCheck(request);

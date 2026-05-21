@@ -6,6 +6,7 @@ export {
 } from './modules/churchNotifications';
 export {
   acceptInvitation,
+  joinChurch,
   sendInvitation,
   cleanupExpiredInvitations,
 } from './modules/invitations';

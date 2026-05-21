@@ -253,32 +253,21 @@ describe('Firestore rules', () => {
     })));
   });
 
-  it('allows verified users to join and leave churches as members only', async () => {
+  it('blocks direct client membership creates while allowing members to leave', async () => {
     await testEnv.withSecurityRulesDisabled(async (context) => {
       const db = dbFor(context);
-      await Promise.all([
-        setDoc(doc(db, 'churches/church-2'), {
-          ...ACTIVE_CHURCH,
-          name: 'St. Sava',
-          city: 'Phoenix',
-          state: 'AZ',
-          location: 'Phoenix, AZ',
-        }),
-        setDoc(doc(db, 'churches/inactive-church'), {
-          ...ACTIVE_CHURCH,
-          name: 'Inactive Parish',
-          isActive: false,
-        }),
-        setDoc(doc(db, 'churches/church-3'), {
-          ...ACTIVE_CHURCH,
-          name: 'Escalated Church',
-        }),
-      ]);
+      await setDoc(doc(db, 'churches/church-2'), {
+        ...ACTIVE_CHURCH,
+        name: 'St. Sava',
+        city: 'Phoenix',
+        state: 'AZ',
+        location: 'Phoenix, AZ',
+      });
     });
 
     const memberDb = dbFor(verifiedContext('member-1', 'member@example.com'));
-    const selfJoinBatch = writeBatch(memberDb);
-    selfJoinBatch.set(doc(memberDb, 'churches/church-2/members/member-1'), {
+    const directSelfJoinBatch = writeBatch(memberDb);
+    directSelfJoinBatch.set(doc(memberDb, 'churches/church-2/members/member-1'), {
       userId: 'member-1',
       churchId: 'church-2',
       role: 'member',
@@ -289,7 +278,7 @@ describe('Firestore rules', () => {
       joinedAt: serverTimestamp(),
       showInDirectory: true,
     });
-    selfJoinBatch.set(doc(memberDb, 'users/member-1/churchMemberships/church-2'), {
+    directSelfJoinBatch.set(doc(memberDb, 'users/member-1/churchMemberships/church-2'), {
       churchId: 'church-2',
       churchName: 'St. Sava',
       location: 'Phoenix, AZ',
@@ -298,56 +287,10 @@ describe('Firestore rules', () => {
       status: 'active',
       joinedAt: serverTimestamp(),
     });
-    await assertSucceeds(selfJoinBatch.commit());
+    await assertFails(directSelfJoinBatch.commit());
 
-    const priestEscalationBatch = writeBatch(memberDb);
-    priestEscalationBatch.set(doc(memberDb, 'churches/church-3/members/member-1'), {
-      userId: 'member-1',
-      churchId: 'church-3',
-      role: 'priest',
-      status: 'active',
-      displayName: 'Member One',
-      email: 'member@example.com',
-      photoURL: '',
-      joinedAt: serverTimestamp(),
-      showInDirectory: true,
-    });
-    priestEscalationBatch.set(doc(memberDb, 'users/member-1/churchMemberships/church-3'), {
-      churchId: 'church-3',
-      churchName: 'Escalated Church',
-      location: 'Escalated',
-      imageURL: '',
-      role: 'priest',
-      status: 'active',
-      joinedAt: serverTimestamp(),
-    });
-    await assertFails(priestEscalationBatch.commit());
-
-    const inactiveJoinBatch = writeBatch(memberDb);
-    inactiveJoinBatch.set(doc(memberDb, 'churches/inactive-church/members/member-1'), {
-      userId: 'member-1',
-      churchId: 'inactive-church',
-      role: 'member',
-      status: 'active',
-      displayName: 'Member One',
-      email: 'member@example.com',
-      photoURL: '',
-      joinedAt: serverTimestamp(),
-      showInDirectory: true,
-    });
-    inactiveJoinBatch.set(doc(memberDb, 'users/member-1/churchMemberships/inactive-church'), {
-      churchId: 'inactive-church',
-      churchName: 'Inactive Parish',
-      location: 'Chicago, IL',
-      imageURL: 'https://example.com/church.jpg',
-      role: 'member',
-      status: 'active',
-      joinedAt: serverTimestamp(),
-    });
-    await assertFails(inactiveJoinBatch.commit());
-
-    await assertSucceeds(deleteDoc(doc(memberDb, 'churches/church-2/members/member-1')));
-    await assertSucceeds(deleteDoc(doc(memberDb, 'users/member-1/churchMemberships/church-2')));
+    await assertSucceeds(deleteDoc(doc(memberDb, `churches/${CHURCH_ID}/members/member-1`)));
+    await assertSucceeds(deleteDoc(doc(memberDb, `users/member-1/churchMemberships/${CHURCH_ID}`)));
   });
 
   it('enforces invitation and giving read/write boundaries', async () => {

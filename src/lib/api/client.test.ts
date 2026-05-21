@@ -37,6 +37,18 @@ describe('callFunction', () => {
     expect(callable).toHaveBeenCalledWith({ amountCents: 5000 });
   });
 
+  it('uses limited-use App Check tokens for parish self-join requests', async () => {
+    const callable = createCallableMock({ success: true });
+    httpsCallableMock.mockReturnValue(callable);
+
+    await expect(callFunction('joinChurch', { churchId: 'church-1' })).resolves.toEqual({ success: true });
+
+    expect(httpsCallableMock).toHaveBeenCalledWith(functions, 'joinChurch', {
+      limitedUseAppCheckTokens: true,
+    });
+    expect(callable).toHaveBeenCalledWith({ churchId: 'church-1' });
+  });
+
   it('does not request replay protection for regular functions', async () => {
     const callable = createCallableMock({ ok: true });
     httpsCallableMock.mockReturnValue(callable);

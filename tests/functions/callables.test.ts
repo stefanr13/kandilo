@@ -238,6 +238,40 @@ async function seedChurchMember(
   await batch.commit();
 }
 
+async function seedSelfJoinMembership(
+  uid: string,
+  email: string,
+  churchId: string,
+  churchName: string
+): Promise<void> {
+  const batch = adminDb.batch();
+  batch.set(adminDb.doc(`churches/${churchId}`), {
+    ...churchData(),
+    name: churchName,
+  });
+  batch.set(adminDb.doc(`churches/${churchId}/members/${uid}`), {
+    userId: uid,
+    churchId,
+    role: 'member',
+    status: 'active',
+    displayName: uid,
+    email,
+    photoURL: '',
+    joinedAt: FieldValue.serverTimestamp(),
+    showInDirectory: true,
+  });
+  batch.set(adminDb.doc(`users/${uid}/churchMemberships/${churchId}`), {
+    churchId,
+    churchName,
+    location: 'Chicago, IL',
+    imageURL: 'https://example.com/church.jpg',
+    role: 'member',
+    status: 'active',
+    joinedAt: FieldValue.serverTimestamp(),
+  });
+  await batch.commit();
+}
+
 async function seedBaseData(): Promise<void> {
   await Promise.all([
     createVerifiedUser('priest-1', 'priest@example.com', 'Priest One'),
@@ -329,6 +363,70 @@ describe('Cloud Functions emulator', () => {
         email: 'other@example.com',
       }),
       'permission-denied'
+    );
+  });
+
+  it('lets parish users self-join active churches and enforces the three-church abuse cap', async () => {
+    await adminDb.doc('churches/church-2').set({
+      ...churchData(),
+      name: 'St. Sava',
+      city: 'Phoenix',
+      state: 'AZ',
+      location: 'Phoenix, AZ',
+      imageURL: 'https://example.com/st-sava.jpg',
+    });
+
+    await expect(
+      callCallable<{ churchId: string }, { success: boolean; alreadyMember?: boolean }>(
+        'joinChurch',
+        { churchId: 'church-2' },
+        { uid: 'other-1', email: 'other@example.com' }
+      )
+    ).resolves.toEqual({ success: true });
+
+    const [memberSnap, fanoutSnap] = await Promise.all([
+      adminDb.doc('churches/church-2/members/other-1').get(),
+      adminDb.doc('users/other-1/churchMemberships/church-2').get(),
+    ]);
+    expect(memberSnap.data()).toMatchObject({
+      userId: 'other-1',
+      churchId: 'church-2',
+      role: 'member',
+      status: 'active',
+      email: 'other@example.com',
+    });
+    expect(fanoutSnap.data()).toMatchObject({
+      churchId: 'church-2',
+      churchName: 'St. Sava',
+      location: 'Phoenix, AZ',
+      role: 'member',
+      status: 'active',
+    });
+
+    await expect(
+      callCallable<{ churchId: string }, { success: boolean; alreadyMember?: boolean }>(
+        'joinChurch',
+        { churchId: 'church-2' },
+        { uid: 'other-1', email: 'other@example.com' }
+      )
+    ).resolves.toEqual({ success: true, alreadyMember: true });
+
+    await Promise.all([
+      seedSelfJoinMembership('invitee-1', 'invitee@example.com', 'limit-1', 'Limit One'),
+      seedSelfJoinMembership('invitee-1', 'invitee@example.com', 'limit-2', 'Limit Two'),
+      seedSelfJoinMembership('invitee-1', 'invitee@example.com', 'limit-3', 'Limit Three'),
+      adminDb.doc('churches/limit-4').set({
+        ...churchData(),
+        name: 'Limit Four',
+      }),
+    ]);
+
+    await expectCallableFails(
+      callCallable('joinChurch', { churchId: 'limit-4' }, {
+        uid: 'invitee-1',
+        email: 'invitee@example.com',
+      }),
+      'resource-exhausted'
     );
   });
 

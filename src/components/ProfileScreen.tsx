@@ -18,7 +18,8 @@ import { Language, ChurchMembership } from '../types';
 import { TRANSLATIONS } from '../translations';
 import { getExtraCopy } from '../localization/extra';
 import { getFirebaseAuthError, signOut } from '../lib/auth';
-import { joinChurch, leaveChurch, listAllChurches } from '../lib/db/churches';
+import { joinChurch } from '../lib/api/churches';
+import { leaveChurch, listAllChurches } from '../lib/db/churches';
 import { getUserProfile, updateUserAvatar, updateUserProfile } from '../lib/db/profile';
 import { uploadUserAvatar } from '../lib/storage/uploads';
 
@@ -86,7 +87,7 @@ export default function ProfileScreen({ onBack, language, onLanguageChange, user
   };
 
   const handleJoin = async (church: ChurchSummary) => {
-    if (!user || !user.email) {
+    if (!user) {
       setProfileMessage(extra.unableJoinChurch);
       return;
     }
@@ -94,11 +95,17 @@ export default function ProfileScreen({ onBack, language, onLanguageChange, user
     setJoiningId(church.id);
     setProfileMessage('');
     try {
-      await joinChurch(user.uid, formData.fullName || user.displayName || '', user.email, avatarUrl, church);
+      await joinChurch(church.id);
       setProfileMessage(extra.joinedChurch);
     } catch (err) {
       console.error('Failed to join church:', err);
-      setProfileMessage(extra.unableJoinChurch);
+      const code =
+        typeof err === 'object' && err !== null && 'code' in err && typeof err.code === 'string'
+          ? err.code
+          : '';
+      setProfileMessage(code === 'functions/resource-exhausted'
+        ? extra.churchLimitReached
+        : extra.unableJoinChurch);
     } finally {
       setJoiningId(null);
     }
