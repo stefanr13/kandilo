@@ -27,13 +27,14 @@ interface CommunityEntry {
 
 function memberRoleLabel(member: FirestoreMember): string {
   if (member.role === 'priest') return 'Priest';
+  if (member.role === 'treasurer') return 'Treasurer';
   if (member.role === 'admin') return 'Parish Admin';
   if (member.ministry) return member.ministry;
   return 'Parishioner';
 }
 
 function memberCategory(member: FirestoreMember): Exclude<Category, 'All'> {
-  return member.role === 'priest' || member.role === 'admin' || Boolean(member.ministry)
+  return member.role === 'priest' || member.role === 'treasurer' || member.role === 'admin' || Boolean(member.ministry)
     ? 'Ministries'
     : 'Parishioners';
 }

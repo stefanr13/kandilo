@@ -16,6 +16,7 @@ service firebase.storage {
 
     function isActiveMember(churchId) {
       return isVerifiedNonAnonymous()
+        && isActiveChurch(churchId)
         && firestore.exists(/databases/(default)/documents/churches/$(churchId)/members/$(request.auth.uid))
         && firestore.get(/databases/(default)/documents/churches/$(churchId)/members/$(request.auth.uid)).data.status == 'active';
     }

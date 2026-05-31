@@ -14,13 +14,28 @@ export {
   createStripeCheckoutSession,
   createStripePaymentIntent,
   stripeWebhook,
+  sendTaxReceipt,
+  sendCorrectedTaxReceipt,
+  sendAnnualTaxReceipt,
+  sendCorrectedAnnualTaxReceipt,
+  downloadTaxReceiptPdf,
+  sendChurchAnnualTaxReceipts,
+  sendChurchCorrectedAnnualTaxReceipts,
+  prepareYearEndAnnualTaxReceipts,
   onGivingCreated,
   onGivingCompleted,
 } from './modules/giving';
 export { onUserDeleted } from './modules/users';
 export { bootstrapUserProfileOnCreate } from './onUserCreated';
 export {
+  getPaymentOperationsReadiness,
   getSuperAdminStats,
+  getTaxReceiptAuditEvents,
+  getChurchPaymentSettings,
+  updateChurchPaymentSettingsAsSuperAdmin,
+  createChurchStripeConnectAccountAsSuperAdmin,
+  createChurchStripeConnectOnboardingLink,
+  getChurchStripeConnectSetupStatus,
   createChurch,
   setChurchActiveState,
   assignChurchMembershipAsSuperAdmin,

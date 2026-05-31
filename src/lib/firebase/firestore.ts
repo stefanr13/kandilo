@@ -1,9 +1,15 @@
 import {
+  connectFirestoreEmulator,
   initializeFirestore,
   memoryLocalCache,
 } from 'firebase/firestore';
 import { ensureAppCheckInitialized } from './app-check';
 import app from './app';
+import {
+  FIREBASE_EMULATOR_HOST,
+  FIREBASE_EMULATOR_PORTS,
+  shouldConnectFirebaseEmulator,
+} from './emulators';
 
 ensureAppCheckInitialized();
 
@@ -13,3 +19,7 @@ ensureAppCheckInitialized();
 export const db = initializeFirestore(app, {
   localCache: memoryLocalCache(),
 });
+
+if (shouldConnectFirebaseEmulator('firestore')) {
+  connectFirestoreEmulator(db, FIREBASE_EMULATOR_HOST, FIREBASE_EMULATOR_PORTS.firestore);
+}

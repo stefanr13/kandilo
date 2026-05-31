@@ -6,12 +6,18 @@ export type {
   Church,
   ChurchDoc,
   ChurchSummary,
+  ChurchPaymentSettings,
+  ChurchPaymentSettingsInput,
+  ChurchStripeConnectSetupStatus,
+  ChurchTaxReceiptSettings,
   ClergyMember,
   MembershipStatus,
   Role,
   ServiceScheduleEntry,
+  SuperAdminPaymentOperationsReadiness,
   SuperAdminChurchInput,
   SuperAdminChurchStats,
+  SuperAdminTaxReceiptAuditEvent,
 } from './domain/church';
 
 export type Language =
@@ -21,6 +27,15 @@ export type Language =
   | 'Русский'
   | 'Română'
   | 'Українська';
+
+export interface TaxReceiptAddress {
+  line1: string;
+  line2: string;
+  city: string;
+  region: string;
+  postalCode: string;
+  country: string;
+}
 
 // Firestore document: users/{userId}
 export interface UserProfile {
@@ -33,6 +48,8 @@ export interface UserProfile {
   ministries?: string[];
   description?: string;
   showInDirectory?: boolean;
+  taxReceiptLegalName?: string;
+  taxReceiptAddress?: TaxReceiptAddress;
   fcmTokens: string[];
   createdAt: Timestamp | FieldValue;
 }
@@ -46,5 +63,6 @@ export interface ChurchMembership {
   location: string;
   role: Role;
   status: MembershipStatus;
+  churchActive?: boolean;
   joinedAt: Timestamp | FieldValue | null;
 }

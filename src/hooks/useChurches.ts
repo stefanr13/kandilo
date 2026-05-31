@@ -22,10 +22,17 @@ export function useChurches(uid: string | null | undefined): UseChurchesResult {
     }
 
     setLoading(true);
-    const unsub = subscribeToUserMemberships(uid, (ms) => {
-      setMemberships(ms);
-      setLoading(false);
-    });
+    const unsub = subscribeToUserMemberships(
+      uid,
+      (ms) => {
+        setMemberships(ms);
+        setLoading(false);
+      },
+      () => {
+        setMemberships([]);
+        setLoading(false);
+      }
+    );
     return unsub;
   }, [uid]);
 

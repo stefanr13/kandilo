@@ -5,4 +5,5 @@ export type ManagementTab =
   | 'posts'
   | 'newsletters'
   | 'notifications'
+  | 'receipts'
   | 'scanner';

@@ -33,6 +33,7 @@ interface ManagementMembersTabProps {
 
 const ROLE_COLORS: Record<Role, string> = {
   priest: 'bg-[#800000]/10 text-[#800000]',
+  treasurer: 'bg-emerald-50 text-emerald-700',
   admin: 'bg-amber-50 text-amber-700',
   member: 'bg-gray-100 text-gray-500',
 };
@@ -209,7 +210,7 @@ export default function ManagementMembersTab({
                                     <p className="text-[9px] font-black text-gray-300 uppercase tracking-widest px-3 py-2">
                                       {t.changeRole}
                                     </p>
-                                    {(['admin', 'member'] as Role[])
+                                    {(['treasurer', 'admin', 'member'] as Role[])
                                       .filter((role) => role !== member.role)
                                       .map((role) => (
                                         <button

@@ -1,4 +1,4 @@
-export type ChurchRole = 'member' | 'admin' | 'priest';
+export type ChurchRole = 'member' | 'admin' | 'treasurer' | 'priest';
 
 export type ChurchMembershipRecord = {
   role?: ChurchRole | string;

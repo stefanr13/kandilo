@@ -120,3 +120,28 @@ body {
     padding-top: calc(env(safe-area-inset-top) + 1rem);
   }
 }
+
+@media print {
+  body.tax-receipt-printing * {
+    visibility: hidden !important;
+  }
+
+  body.tax-receipt-printing .tax-receipt-print,
+  body.tax-receipt-printing .tax-receipt-print * {
+    visibility: visible !important;
+  }
+
+  body.tax-receipt-printing .tax-receipt-print {
+    background: white !important;
+    color: black !important;
+    inset: 0 !important;
+    overflow: visible !important;
+    padding: 24px !important;
+    position: fixed !important;
+  }
+
+  body.tax-receipt-printing .tax-receipt-no-print,
+  body.tax-receipt-printing .tax-receipt-no-print * {
+    display: none !important;
+  }
+}

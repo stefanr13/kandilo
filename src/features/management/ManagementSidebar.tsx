@@ -5,6 +5,7 @@ import {
   LayoutDashboard,
   PenLine,
   QrCode,
+  ReceiptText,
   Settings,
   Users,
 } from 'lucide-react';
@@ -16,6 +17,8 @@ interface ManagementSidebarProps {
   activeTab: ManagementTab;
   onTabChange: (tab: ManagementTab) => void;
   language: Language;
+  showOperations: boolean;
+  showReceipts: boolean;
 }
 
 const TABS: Array<{
@@ -28,6 +31,7 @@ const TABS: Array<{
   { id: 'posts', icon: PenLine },
   { id: 'newsletters', icon: BookOpen },
   { id: 'notifications', icon: Bell },
+  { id: 'receipts', icon: ReceiptText },
   { id: 'scanner', icon: QrCode },
 ];
 
@@ -35,9 +39,12 @@ export default function ManagementSidebar({
   activeTab,
   onTabChange,
   language,
+  showOperations,
+  showReceipts,
 }: ManagementSidebarProps) {
   const copy = getExtraCopy(language).management;
   const labels = copy.tabs;
+  const tabs = TABS.filter((tab) => (tab.id === 'receipts' ? showReceipts : showOperations));
 
   return (
     <div className="w-20 xl:w-60 border-r border-gray-100 bg-white flex flex-col items-center xl:items-stretch px-3 xl:px-4 py-6 xl:py-8 gap-6 sticky top-0 h-full overflow-y-auto">
@@ -54,7 +61,7 @@ export default function ManagementSidebar({
       </div>
 
       <div className="flex-1 flex flex-col gap-2">
-        {TABS.map((tab) => (
+        {tabs.map((tab) => (
           <button
             key={tab.id}
             title={labels[tab.id]}

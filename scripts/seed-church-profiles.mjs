@@ -1,8 +1,53 @@
 import { initializeApp, applicationDefault } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
 
-initializeApp({ credential: applicationDefault(), projectId: 'kandilo-2f7a9' });
-const db = getFirestore();
+const expectedProjectId = 'kandilo-2f7a9';
+
+function usage() {
+  console.error(`Usage: node scripts/seed-church-profiles.mjs --confirm-project ${expectedProjectId}`);
+  console.error('Requires GOOGLE_APPLICATION_CREDENTIALS or firebase-admin default credentials.');
+  console.error('Easiest: run `npx --no-install firebase login` first, then this script uses the CLI credentials.');
+}
+
+function fail(message) {
+  console.error(message);
+  usage();
+  process.exit(1);
+}
+
+function parseArgs(rawArgs) {
+  let confirmProject = '';
+
+  for (let index = 0; index < rawArgs.length; index += 1) {
+    const arg = rawArgs[index];
+    if (arg === '--confirm-project') {
+      const value = rawArgs[index + 1];
+      if (!value || value.startsWith('--')) {
+        fail('Missing value for --confirm-project.');
+      }
+      confirmProject = value;
+      index += 1;
+    } else if (arg.startsWith('--')) {
+      fail(`Unknown argument ${arg}.`);
+    } else {
+      fail(`Unexpected positional argument ${arg}.`);
+    }
+  }
+
+  return { confirmProject };
+}
+
+function assertExpectedProjectConfirmation(confirmProject) {
+  if (confirmProject !== expectedProjectId) {
+    fail(`Refusing to update sample church profiles without --confirm-project ${expectedProjectId}.`);
+  }
+}
+
+const { confirmProject } = parseArgs(process.argv.slice(2));
+assertExpectedProjectConfirmation(confirmProject);
+
+const app = initializeApp({ credential: applicationDefault(), projectId: expectedProjectId });
+const db = getFirestore(app);
 
 const stSimeon = {
   name: 'St. Simeon Mirotocivi',

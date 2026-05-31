@@ -1,7 +1,39 @@
-import { MembershipStatus } from '../../domain/church';
-import { FirestoreEvent } from '../../lib/db/events';
-import { FirestoreMember } from '../../lib/db/memberships';
-import { FirestoreNewsletter } from '../../lib/db/newsletters';
+import type { MembershipStatus, Role } from '../../domain/church';
+import { canManageTaxReceipts, isAdminOrPriestRole } from '../../domain/roles';
+import type { FirestoreEvent } from '../../lib/db/events';
+import type { FirestoreMember } from '../../lib/db/memberships';
+import type { FirestoreNewsletter } from '../../lib/db/newsletters';
+import type { ManagementTab } from './types';
+
+const OPERATION_MANAGEMENT_TABS: readonly ManagementTab[] = [
+  'dashboard',
+  'members',
+  'events',
+  'posts',
+  'newsletters',
+  'notifications',
+  'scanner',
+];
+
+export function isManagementTabAllowedForRole(tab: ManagementTab, role: Role): boolean {
+  if (tab === 'receipts') {
+    return canManageTaxReceipts(role);
+  }
+
+  return isAdminOrPriestRole(role) && OPERATION_MANAGEMENT_TABS.includes(tab);
+}
+
+export function getDefaultManagementTab(role: Role): ManagementTab {
+  if (!isAdminOrPriestRole(role) && canManageTaxReceipts(role)) {
+    return 'receipts';
+  }
+
+  return 'dashboard';
+}
+
+export function coerceManagementTabForRole(tab: ManagementTab, role: Role): ManagementTab {
+  return isManagementTabAllowedForRole(tab, role) ? tab : getDefaultManagementTab(role);
+}
 
 export function filterMembers(
   members: FirestoreMember[],

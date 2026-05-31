@@ -2,25 +2,42 @@ import { useCallback, useEffect, useState } from 'react';
 import {
   assignChurchMembershipAsSuperAdmin,
   createChurchAsSuperAdmin,
+  createChurchStripeConnectAccountAsSuperAdmin,
+  fetchChurchPaymentSettings,
+  fetchPaymentOperationsReadiness,
   fetchSuperAdminStats,
+  fetchTaxReceiptAuditEvents,
   promoteUserToSuperAdmin,
   setChurchActiveState,
   updateChurchAsSuperAdmin,
+  updateChurchPaymentSettingsAsSuperAdmin,
 } from '../../lib/api/mission-control';
 import { getChurchById } from '../../lib/db/churches';
-import { ChurchSummary, Role, SuperAdminChurchStats } from '../../domain/church';
+import {
+  ChurchSummary,
+  Role,
+  SuperAdminPaymentOperationsReadiness,
+  SuperAdminChurchStats,
+  SuperAdminTaxReceiptAuditEvent,
+} from '../../domain/church';
 import {
   buildChurchInput,
+  buildChurchPaymentSettingsInput,
+  buildEditChurchForm,
   ChurchFormData,
+  mergeChurchPaymentSettingsForm,
 } from './missionControlForm';
 
 interface MissionControlState {
   stats: SuperAdminChurchStats[];
+  paymentOperationsReadiness: SuperAdminPaymentOperationsReadiness | null;
+  taxReceiptAuditEvents: SuperAdminTaxReceiptAuditEvent[];
   filteredStats: SuperAdminChurchStats[];
   statsLoading: boolean;
   statsError: string;
   showAddChurch: boolean;
   editingChurch: ChurchSummary | null;
+  editingChurchForm: ChurchFormData | null;
   formLoading: boolean;
   formError: string;
   confirmDeactivateId: string | null;
@@ -53,6 +70,7 @@ interface MissionControlState {
   cancelDeactivate: () => void;
   handleAddChurch: (form: ChurchFormData) => Promise<void>;
   handleEditChurch: (form: ChurchFormData) => Promise<void>;
+  handleCreateStripeConnectAccount: (form: ChurchFormData) => Promise<string>;
   handleSetActive: (churchId: string, isActive: boolean) => Promise<void>;
   handlePromote: () => Promise<void>;
   handleAssignMembership: (churchId: string) => Promise<void>;
@@ -60,10 +78,14 @@ interface MissionControlState {
 
 export function useMissionControl(): MissionControlState {
   const [stats, setStats] = useState<SuperAdminChurchStats[]>([]);
+  const [paymentOperationsReadiness, setPaymentOperationsReadiness] =
+    useState<SuperAdminPaymentOperationsReadiness | null>(null);
+  const [taxReceiptAuditEvents, setTaxReceiptAuditEvents] = useState<SuperAdminTaxReceiptAuditEvent[]>([]);
   const [statsLoading, setStatsLoading] = useState(true);
   const [statsError, setStatsError] = useState('');
   const [showAddChurch, setShowAddChurch] = useState(false);
   const [editingChurch, setEditingChurch] = useState<ChurchSummary | null>(null);
+  const [editingChurchForm, setEditingChurchForm] = useState<ChurchFormData | null>(null);
   const [formLoading, setFormLoading] = useState(false);
   const [formError, setFormError] = useState('');
   const [confirmDeactivateId, setConfirmDeactivateId] = useState<string | null>(null);
@@ -82,7 +104,14 @@ export function useMissionControl(): MissionControlState {
     setStatsLoading(true);
     setStatsError('');
     try {
-      setStats(await fetchSuperAdminStats());
+      const [nextStats, nextReceiptAuditEvents, nextPaymentOperationsReadiness] = await Promise.all([
+        fetchSuperAdminStats(),
+        fetchTaxReceiptAuditEvents(),
+        fetchPaymentOperationsReadiness(),
+      ]);
+      setStats(nextStats);
+      setTaxReceiptAuditEvents(nextReceiptAuditEvents);
+      setPaymentOperationsReadiness(nextPaymentOperationsReadiness);
     } catch (error) {
       setStatsError('Failed to load platform stats. Try refreshing.');
       console.error(error);
@@ -126,7 +155,9 @@ export function useMissionControl(): MissionControlState {
         setFormError('Church details could not be loaded.');
         return;
       }
+      const paymentSettings = await fetchChurchPaymentSettings(churchId);
       setEditingChurch(church);
+      setEditingChurchForm(mergeChurchPaymentSettingsForm(buildEditChurchForm(church), paymentSettings));
     } catch (error) {
       setFormError('Church details could not be loaded.');
       console.error(error);
@@ -138,6 +169,7 @@ export function useMissionControl(): MissionControlState {
   const closeEditChurch = () => {
     setFormError('');
     setEditingChurch(null);
+    setEditingChurchForm(null);
   };
 
   const requestDeactivate = (churchId: string) => {
@@ -165,7 +197,11 @@ export function useMissionControl(): MissionControlState {
     setFormLoading(true);
     setFormError('');
     try {
-      await createChurchAsSuperAdmin(buildChurchInput(form));
+      const created = await createChurchAsSuperAdmin(buildChurchInput(form));
+      const paymentSettings = buildChurchPaymentSettingsInput(form);
+      if (paymentSettings.stripeConnectEnabled || paymentSettings.stripeConnectAccountId) {
+        await updateChurchPaymentSettingsAsSuperAdmin(created.churchId, paymentSettings);
+      }
       setShowAddChurch(false);
       await loadStats();
     } catch (error) {
@@ -182,13 +218,37 @@ export function useMissionControl(): MissionControlState {
     setFormError('');
     try {
       await updateChurchAsSuperAdmin(editingChurch.id, buildChurchInput(form));
+      await updateChurchPaymentSettingsAsSuperAdmin(editingChurch.id, buildChurchPaymentSettingsInput(form));
       setEditingChurch(null);
+      setEditingChurchForm(null);
       await loadStats();
     } catch (error) {
       setFormError((error as Error).message);
     } finally {
       setFormLoading(false);
     }
+  };
+
+  const handleCreateStripeConnectAccount = async (form: ChurchFormData): Promise<string> => {
+    if (!editingChurch) {
+      throw new Error('Open an existing church before creating a Stripe account.');
+    }
+    if (form.stripeConnectAccountId.trim()) {
+      throw new Error('This church already has a Stripe connected account configured.');
+    }
+
+    const result = await createChurchStripeConnectAccountAsSuperAdmin(editingChurch.id);
+    setEditingChurchForm((current) =>
+      current
+        ? {
+            ...current,
+            stripeConnectEnabled: result.stripeConnectEnabled ? 'true' : 'false',
+            stripeConnectAccountId: result.stripeConnectAccountId,
+            stripeConnectAccountApi: result.stripeConnectAccountApi,
+          }
+        : current
+    );
+    return result.stripeConnectAccountId;
   };
 
   const handleSetActive = async (churchId: string, isActive: boolean) => {
@@ -250,11 +310,14 @@ export function useMissionControl(): MissionControlState {
 
   return {
     stats,
+    paymentOperationsReadiness,
+    taxReceiptAuditEvents,
     filteredStats,
     statsLoading,
     statsError,
     showAddChurch,
     editingChurch,
+    editingChurchForm,
     formLoading,
     formError,
     confirmDeactivateId,
@@ -287,6 +350,7 @@ export function useMissionControl(): MissionControlState {
     cancelDeactivate,
     handleAddChurch,
     handleEditChurch,
+    handleCreateStripeConnectAccount,
     handleSetActive,
     handlePromote,
     handleAssignMembership,

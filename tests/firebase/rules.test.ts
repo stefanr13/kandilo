@@ -6,15 +6,21 @@ import {
   type RulesTestEnvironment,
 } from '@firebase/rules-unit-testing';
 import { readFileSync } from 'node:fs';
-import { afterAll, beforeAll, beforeEach, describe, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import {
+  collection,
   deleteDoc,
   doc,
   getDoc,
+  getDocs,
+  limit,
+  orderBy,
+  query,
   serverTimestamp,
   setDoc,
   Timestamp,
   updateDoc,
+  where,
   writeBatch,
 } from 'firebase/firestore';
 import { getMetadata, ref, uploadString } from 'firebase/storage';
@@ -38,6 +44,15 @@ function verifiedContext(uid: string, email: string, extraClaims: Record<string,
   return testEnv.authenticatedContext(uid, {
     email,
     email_verified: true,
+    firebase: { sign_in_provider: 'password' },
+    ...extraClaims,
+  });
+}
+
+function unverifiedContext(uid: string, email: string, extraClaims: Record<string, unknown> = {}): RulesTestContext {
+  return testEnv.authenticatedContext(uid, {
+    email,
+    email_verified: false,
     firebase: { sign_in_provider: 'password' },
     ...extraClaims,
   });
@@ -80,7 +95,7 @@ function userProfile(uid: string, email: string) {
 function memberDoc(input: {
   uid: string;
   email: string;
-  role: 'priest' | 'admin' | 'member';
+  role: 'priest' | 'treasurer' | 'admin' | 'member';
   status?: 'active' | 'suspended';
   showInDirectory?: boolean;
 }) {
@@ -102,7 +117,7 @@ function memberDoc(input: {
 }
 
 function membershipFanout(input: {
-  role: 'priest' | 'admin' | 'member';
+  role: 'priest' | 'treasurer' | 'admin' | 'member';
   status?: 'active' | 'suspended';
 }) {
   return {
@@ -122,6 +137,7 @@ async function seedBaseData(): Promise<void> {
     await Promise.all([
       setDoc(doc(db, `churches/${CHURCH_ID}`), ACTIVE_CHURCH),
       setDoc(doc(db, 'users/priest-1'), userProfile('priest-1', 'priest@example.com')),
+      setDoc(doc(db, 'users/treasurer-1'), userProfile('treasurer-1', 'treasurer@example.com')),
       setDoc(doc(db, 'users/admin-1'), userProfile('admin-1', 'admin@example.com')),
       setDoc(doc(db, 'users/member-1'), userProfile('member-1', 'member@example.com')),
       setDoc(doc(db, 'users/member-2'), userProfile('member-2', 'member2@example.com')),
@@ -133,6 +149,10 @@ async function seedBaseData(): Promise<void> {
       setDoc(
         doc(db, `churches/${CHURCH_ID}/members/admin-1`),
         memberDoc({ uid: 'admin-1', email: 'admin@example.com', role: 'admin' })
+      ),
+      setDoc(
+        doc(db, `churches/${CHURCH_ID}/members/treasurer-1`),
+        memberDoc({ uid: 'treasurer-1', email: 'treasurer@example.com', role: 'treasurer' })
       ),
       setDoc(
         doc(db, `churches/${CHURCH_ID}/members/member-1`),
@@ -165,6 +185,10 @@ async function seedBaseData(): Promise<void> {
         membershipFanout({ role: 'admin' })
       ),
       setDoc(
+        doc(db, `users/treasurer-1/churchMemberships/${CHURCH_ID}`),
+        membershipFanout({ role: 'treasurer' })
+      ),
+      setDoc(
         doc(db, `users/member-1/churchMemberships/${CHURCH_ID}`),
         membershipFanout({ role: 'member' })
       ),
@@ -176,6 +200,10 @@ async function seedBaseData(): Promise<void> {
         doc(db, `users/suspended-1/churchMemberships/${CHURCH_ID}`),
         membershipFanout({ role: 'member', status: 'suspended' })
       ),
+      setDoc(doc(db, `churchPaymentSettings/${CHURCH_ID}`), {
+        stripeConnectEnabled: true,
+        stripeConnectAccountId: 'acct_private_test_123',
+      }),
     ]);
   });
 }
@@ -207,11 +235,17 @@ describe('Firestore rules', () => {
     const ownerDb = dbFor(verifiedContext('member-1', 'member@example.com'));
     const otherDb = dbFor(verifiedContext('member-2', 'member2@example.com'));
     const guestDb = dbFor(anonymousContext());
+    const superAdminDb = dbFor(verifiedContext('super-1', 'super@example.com', { superAdmin: true }));
+    const unverifiedSuperAdminDb = dbFor(
+      unverifiedContext('super-unverified', 'super-unverified@example.com', { superAdmin: true })
+    );
     const ownerRef = doc(ownerDb, 'users/member-1');
 
     await assertSucceeds(getDoc(ownerRef));
     await assertFails(getDoc(doc(otherDb, 'users/member-1')));
     await assertFails(getDoc(doc(guestDb, 'users/member-1')));
+    await assertFails(getDoc(doc(superAdminDb, 'users/member-1')));
+    await assertFails(getDoc(doc(unverifiedSuperAdminDb, 'users/member-1')));
 
     await assertSucceeds(
       updateDoc(ownerRef, {
@@ -219,22 +253,84 @@ describe('Firestore rules', () => {
         preferredLanguage: 'Română',
       })
     );
+    await assertSucceeds(
+      updateDoc(ownerRef, {
+        taxReceiptLegalName: 'Legal Donor Name',
+        taxReceiptAddress: {
+          line1: '10 Church Street',
+          line2: 'Suite 2',
+          city: 'Chicago',
+          region: 'IL',
+          postalCode: '60601',
+          country: 'US',
+        },
+      })
+    );
+    await assertFails(
+      updateDoc(ownerRef, {
+        taxReceiptAddress: {
+          line1: '10 Church Street',
+          city: 'Chicago',
+          country: 'US',
+          unreviewedField: 'not allowed',
+        },
+      })
+    );
     await assertFails(updateDoc(ownerRef, { email: 'changed@example.com' }));
+
+    await testEnv.withSecurityRulesDisabled(async (context) => {
+      await setDoc(doc(dbFor(context), 'users/legacy-1'), {
+        email: 'legacy@example.com',
+        displayName: 'Legacy Member',
+        createdAt: Timestamp.fromDate(new Date('2026-05-17T12:00:00Z')),
+      });
+    });
+    const legacyDb = dbFor(verifiedContext('legacy-1', 'legacy@example.com'));
+    await assertSucceeds(
+      updateDoc(doc(legacyDb, 'users/legacy-1'), {
+        displayName: 'Legacy Member',
+        photoURL: null,
+        preferredLanguage: 'English',
+        phone: '',
+        ministries: [],
+        description: '',
+        showInDirectory: false,
+        taxReceiptLegalName: '',
+        fcmTokens: [],
+      })
+    );
+  });
+
+  it('keeps broad church metadata writes backend-only', async () => {
+    const adminDb = dbFor(verifiedContext('admin-1', 'admin@example.com'));
+    const superAdminDb = dbFor(verifiedContext('super-1', 'super@example.com', { superAdmin: true }));
+
+    await assertSucceeds(updateDoc(doc(adminDb, `churches/${CHURCH_ID}`), { showSaintDays: true }));
+    await assertFails(updateDoc(doc(adminDb, `churches/${CHURCH_ID}`), { name: 'Renamed Parish' }));
+    await assertFails(updateDoc(doc(superAdminDb, `churches/${CHURCH_ID}`), { isActive: false }));
+    await assertFails(setDoc(doc(superAdminDb, 'churches/direct-client-create'), {
+      ...ACTIVE_CHURCH,
+      name: 'Direct Client Create',
+    }));
   });
 
   it('keeps membership reads and updates scoped by role', async () => {
     const memberDb = dbFor(verifiedContext('member-1', 'member@example.com'));
     const adminDb = dbFor(verifiedContext('admin-1', 'admin@example.com'));
+    const treasurerDb = dbFor(verifiedContext('treasurer-1', 'treasurer@example.com'));
     const priestDb = dbFor(verifiedContext('priest-1', 'priest@example.com'));
     const memberRefForMember = doc(memberDb, `churches/${CHURCH_ID}/members/member-1`);
     const hiddenMemberRefForMember = doc(memberDb, `churches/${CHURCH_ID}/members/member-2`);
+    const hiddenMemberRefForTreasurer = doc(treasurerDb, `churches/${CHURCH_ID}/members/member-2`);
     const memberRefForAdmin = doc(adminDb, `churches/${CHURCH_ID}/members/member-1`);
     const fanoutRefForAdmin = doc(adminDb, `users/member-1/churchMemberships/${CHURCH_ID}`);
     const memberRefForPriest = doc(priestDb, `churches/${CHURCH_ID}/members/member-1`);
+    const fanoutRefForPriest = doc(priestDb, `users/member-1/churchMemberships/${CHURCH_ID}`);
 
     await assertSucceeds(getDoc(memberRefForMember));
     await assertFails(getDoc(hiddenMemberRefForMember));
     await assertSucceeds(getDoc(memberRefForAdmin));
+    await assertFails(getDoc(hiddenMemberRefForTreasurer));
     await assertFails(getDoc(doc(unauthenticatedContext().firestore(), `churches/${CHURCH_ID}/members/member-1`)));
 
     await assertSucceeds(updateDoc(memberRefForMember, { phone: '555-0100' }));
@@ -244,7 +340,8 @@ describe('Firestore rules', () => {
     await assertSucceeds(updateDoc(fanoutRefForAdmin, { status: 'suspended' }));
     await assertFails(updateDoc(memberRefForAdmin, { role: 'admin' }));
 
-    await assertSucceeds(updateDoc(memberRefForPriest, { role: 'admin' }));
+    await assertSucceeds(updateDoc(memberRefForPriest, { role: 'treasurer' }));
+    await assertSucceeds(updateDoc(fanoutRefForPriest, { role: 'treasurer' }));
     await assertFails(updateDoc(memberRefForPriest, { role: 'priest' }));
     await assertFails(setDoc(doc(adminDb, `churches/${CHURCH_ID}/members/new-member`), memberDoc({
       uid: 'new-member',
@@ -310,18 +407,219 @@ describe('Firestore rules', () => {
         setDoc(doc(db, 'giving/giving-1'), {
           churchId: CHURCH_ID,
           userId: 'member-1',
+          anonymous: false,
+          churchReceiptVisible: true,
+          donorName: 'Member One',
+          donorEmail: '',
+          donorNamePublicSafe: true,
+          receiptManagerGivingSafeVersion: 1,
           amount: 50,
           amountCents: 5000,
           currency: 'USD',
           status: 'completed',
+          createdAt: Timestamp.fromDate(new Date('2026-05-24T16:00:00Z')),
+        }),
+        setDoc(doc(db, 'giving/giving-anonymous'), {
+          churchId: CHURCH_ID,
+          userId: 'member-1',
+          anonymous: true,
+          donorName: 'Anonymous donor',
+          donorEmail: '',
+          donorNamePublicSafe: false,
+          amount: 75,
+          amountCents: 7500,
+          currency: 'USD',
+          status: 'completed',
+          createdAt: Timestamp.fromDate(new Date('2026-05-24T17:00:00Z')),
+        }),
+        setDoc(doc(db, 'giving/giving-ambiguous-anonymity'), {
+          churchId: CHURCH_ID,
+          userId: 'member-1',
+          amount: 40,
+          amountCents: 4000,
+          currency: 'USD',
+          status: 'completed',
+          createdAt: Timestamp.fromDate(new Date('2026-05-24T18:00:00Z')),
+        }),
+        setDoc(doc(db, 'giving/giving-legacy-email'), {
+          churchId: CHURCH_ID,
+          userId: 'member-1',
+          anonymous: false,
+          donorName: 'member@example.com',
+          donorEmail: 'legacy-member@example.com',
+          donorNamePublicSafe: false,
+          amount: 60,
+          amountCents: 6000,
+          currency: 'USD',
+          status: 'completed',
+          createdAt: Timestamp.fromDate(new Date('2026-05-24T19:00:00Z')),
+        }),
+        setDoc(doc(db, 'giving/giving-pending'), {
+          churchId: CHURCH_ID,
+          userId: 'member-1',
+          anonymous: false,
+          churchReceiptVisible: true,
+          donorName: 'Pending Donor',
+          donorEmail: '',
+          donorNamePublicSafe: true,
+          receiptManagerGivingSafeVersion: 1,
+          amount: 65,
+          amountCents: 6500,
+          currency: 'USD',
+          status: 'pending',
+          createdAt: Timestamp.fromDate(new Date('2026-05-24T19:10:00Z')),
+        }),
+        setDoc(doc(db, 'giving/giving-failed'), {
+          churchId: CHURCH_ID,
+          userId: 'member-1',
+          anonymous: false,
+          churchReceiptVisible: true,
+          donorName: 'Failed Donor',
+          donorEmail: '',
+          donorNamePublicSafe: true,
+          receiptManagerGivingSafeVersion: 1,
+          amount: 70,
+          amountCents: 7000,
+          currency: 'USD',
+          status: 'failed',
+          createdAt: Timestamp.fromDate(new Date('2026-05-24T19:20:00Z')),
+        }),
+        setDoc(doc(db, 'taxReceipts/giving-1'), {
+          churchId: CHURCH_ID,
+          userId: 'member-1',
+          givingId: 'giving-1',
+          receiptNumber: 'STN-2026-000001',
+          status: 'sent',
+          issuedAt: Timestamp.fromDate(new Date('2026-05-24T16:10:00Z')),
+        }),
+        setDoc(doc(db, 'taxReceiptSummaries/annual-1'), {
+          receiptId: 'annual-1',
+          churchId: CHURCH_ID,
+          userId: 'member-1',
+          kind: 'annual',
+          jurisdiction: 'CA',
+          receiptYear: 2025,
+          receiptNumber: 'STN-2025-000009',
+          status: 'sent',
+          correctedReceipt: true,
+          donorLabel: 'Member One',
+          donorAnonymous: false,
+          churchReceiptVisible: true,
+          donorLabelPublicSafe: true,
+          receiptManagerSummarySafe: true,
+          receiptManagerSummarySafeVersion: 2,
+          issuedAt: Timestamp.fromDate(new Date('2026-01-15T12:00:00Z')),
+        }),
+        setDoc(doc(db, 'taxReceiptSummaries/annual-profile-required'), {
+          receiptId: '',
+          churchId: CHURCH_ID,
+          userId: 'member-1',
+          kind: 'annual',
+          receiptYear: 2025,
+          receiptNumber: '',
+          status: 'error',
+          donorLabel: 'Member One',
+          donorAnonymous: false,
+          churchReceiptVisible: true,
+          donorLabelPublicSafe: true,
+          receiptManagerSummarySafe: true,
+          receiptManagerSummarySafeVersion: 2,
+          emailError: 'tax_receipt_donor_profile_incomplete',
+          issuedAt: Timestamp.fromDate(new Date('2026-01-15T12:03:00Z')),
+        }),
+        setDoc(doc(db, 'taxReceiptSummaries/annual-verified-email-required'), {
+          receiptId: '',
+          churchId: CHURCH_ID,
+          userId: 'member-1',
+          kind: 'annual',
+          receiptYear: 2025,
+          receiptNumber: '',
+          status: 'error',
+          donorLabel: 'Member One',
+          donorAnonymous: false,
+          churchReceiptVisible: true,
+          donorLabelPublicSafe: true,
+          receiptManagerSummarySafe: true,
+          receiptManagerSummarySafeVersion: 2,
+          emailError: 'tax_receipt_missing_email_or_amount',
+          issuedAt: Timestamp.fromDate(new Date('2026-01-15T12:04:00Z')),
+        }),
+        setDoc(doc(db, 'taxReceiptSummaries/annual-legacy-email'), {
+          receiptId: 'annual-legacy-email',
+          churchId: CHURCH_ID,
+          userId: 'member-1',
+          kind: 'annual',
+          receiptYear: 2025,
+          receiptNumber: 'STN-2025-000012',
+          status: 'sent',
+          donorLabel: 'member@example.com',
+          donorAnonymous: false,
+          issuedAt: Timestamp.fromDate(new Date('2026-01-15T12:05:00Z')),
+        }),
+        setDoc(doc(db, 'taxReceiptSummaries/annual-anonymous'), {
+          receiptId: 'annual-anonymous',
+          churchId: CHURCH_ID,
+          userId: 'member-1',
+          kind: 'annual',
+          receiptYear: 2025,
+          receiptNumber: 'STN-2025-000010',
+          status: 'sent',
+          donorLabel: 'Anonymous donor',
+          donorAnonymous: true,
+          issuedAt: Timestamp.fromDate(new Date('2026-01-15T12:00:00Z')),
+        }),
+        setDoc(doc(db, 'taxReceiptSummaries/annual-ambiguous-anonymity'), {
+          receiptId: 'annual-ambiguous-anonymity',
+          churchId: CHURCH_ID,
+          userId: 'member-1',
+          kind: 'annual',
+          receiptYear: 2025,
+          receiptNumber: 'STN-2025-000011',
+          status: 'sent',
+          issuedAt: Timestamp.fromDate(new Date('2026-01-15T12:00:00Z')),
+        }),
+        setDoc(doc(db, 'taxReceiptSummaries/single-malformed-visible'), {
+          receiptId: 'single-malformed-visible',
+          churchId: CHURCH_ID,
+          userId: 'member-1',
+          kind: 'single',
+          receiptYear: 2025,
+          receiptNumber: 'STN-2025-000013',
+          status: 'sent',
+          donorLabel: 'Member One',
+          donorAnonymous: false,
+          churchReceiptVisible: true,
+          issuedAt: Timestamp.fromDate(new Date('2026-01-15T12:10:00Z')),
+        }),
+        setDoc(doc(db, 'taxReceiptEvents/event-1'), {
+          action: 'email_sent',
+          actorUid: 'priest-1',
+          churchId: CHURCH_ID,
+          userId: 'member-1',
+          receiptId: 'giving-1',
+          kind: 'single',
+          receiptYear: 2026,
+          createdAt: Timestamp.fromDate(new Date('2026-05-24T16:00:00Z')),
+        }),
+        setDoc(doc(db, 'stripeWebhookEvents/evt_checkout_completed'), {
+          type: 'checkout.session.completed',
+          stripeSessionId: 'cs_live_private',
+          stripePaymentIntentId: 'pi_live_private',
+          givingId: 'giving-1',
+          status: 'processed',
+          processedAt: Timestamp.fromDate(new Date('2026-05-24T16:05:00Z')),
         }),
       ]);
     });
 
     const inviteeDb = dbFor(verifiedContext('invitee-1', 'invitee@example.com'));
     const memberDb = dbFor(verifiedContext('member-1', 'member@example.com'));
+    const unverifiedMemberDb = dbFor(unverifiedContext('member-1', 'member@example.com'));
+    const anonymousMemberDb = dbFor(anonymousContext('member-1'));
     const adminDb = dbFor(verifiedContext('admin-1', 'admin@example.com'));
+    const treasurerDb = dbFor(verifiedContext('treasurer-1', 'treasurer@example.com'));
     const priestDb = dbFor(verifiedContext('priest-1', 'priest@example.com'));
+    const superAdminDb = dbFor(verifiedContext('super-1', 'super@example.com', { superAdmin: true }));
 
     await assertSucceeds(getDoc(doc(inviteeDb, 'invitations/invite-1')));
     await assertSucceeds(getDoc(doc(adminDb, 'invitations/invite-1')));
@@ -330,8 +628,473 @@ describe('Firestore rules', () => {
 
     await assertSucceeds(getDoc(doc(memberDb, 'giving/giving-1')));
     await assertSucceeds(getDoc(doc(priestDb, 'giving/giving-1')));
+    await assertSucceeds(getDoc(doc(treasurerDb, 'giving/giving-1')));
     await assertFails(getDoc(doc(adminDb, 'giving/giving-1')));
+    await assertFails(getDoc(doc(superAdminDb, 'giving/giving-1')));
+    await assertSucceeds(getDoc(doc(memberDb, 'giving/giving-anonymous')));
+    await assertFails(getDoc(doc(priestDb, 'giving/giving-anonymous')));
+    await assertFails(getDoc(doc(treasurerDb, 'giving/giving-anonymous')));
+    await assertFails(getDoc(doc(superAdminDb, 'giving/giving-anonymous')));
+    await assertSucceeds(getDoc(doc(memberDb, 'giving/giving-ambiguous-anonymity')));
+    await assertFails(getDoc(doc(priestDb, 'giving/giving-ambiguous-anonymity')));
+    await assertFails(getDoc(doc(treasurerDb, 'giving/giving-ambiguous-anonymity')));
+    await assertSucceeds(getDoc(doc(memberDb, 'giving/giving-legacy-email')));
+    await assertFails(getDoc(doc(priestDb, 'giving/giving-legacy-email')));
+    await assertFails(getDoc(doc(treasurerDb, 'giving/giving-legacy-email')));
+    await assertSucceeds(getDoc(doc(memberDb, 'giving/giving-pending')));
+    await assertFails(getDoc(doc(priestDb, 'giving/giving-pending')));
+    await assertFails(getDoc(doc(treasurerDb, 'giving/giving-pending')));
+    await assertSucceeds(getDoc(doc(memberDb, 'giving/giving-failed')));
+    await assertFails(getDoc(doc(priestDb, 'giving/giving-failed')));
+    await assertFails(getDoc(doc(treasurerDb, 'giving/giving-failed')));
+    await assertSucceeds(getDocs(query(
+      collection(priestDb, 'giving'),
+      where('churchId', '==', CHURCH_ID),
+      where('anonymous', '==', false),
+      where('churchReceiptVisible', '==', true),
+      where('donorEmail', '==', ''),
+      where('donorNamePublicSafe', '==', true),
+      where('receiptManagerGivingSafeVersion', '==', 1),
+      where('status', 'in', ['completed', 'refunded']),
+      orderBy('createdAt', 'desc'),
+      limit(10)
+    )));
+    await assertFails(getDocs(query(
+      collection(priestDb, 'giving'),
+      where('churchId', '==', CHURCH_ID),
+      where('anonymous', '==', false),
+      where('churchReceiptVisible', '==', true),
+      where('donorEmail', '==', ''),
+      orderBy('createdAt', 'desc'),
+      limit(10)
+    )));
+    await assertFails(getDocs(query(
+      collection(priestDb, 'giving'),
+      where('churchId', '==', CHURCH_ID),
+      where('anonymous', '==', false),
+      where('churchReceiptVisible', '==', true),
+      orderBy('createdAt', 'desc'),
+      limit(10)
+    )));
+    await assertFails(getDocs(query(
+      collection(priestDb, 'giving'),
+      where('churchId', '==', CHURCH_ID),
+      orderBy('createdAt', 'desc'),
+      limit(10)
+    )));
+    await testEnv.withSecurityRulesDisabled(async (context) => {
+      const db = dbFor(context);
+      await Promise.all([
+        setDoc(doc(db, 'giving/giving-private-stripe-visible'), {
+          churchId: CHURCH_ID,
+          userId: 'member-1',
+          anonymous: false,
+          churchReceiptVisible: true,
+          donorName: 'Member One',
+          donorEmail: '',
+          donorNamePublicSafe: true,
+          amount: 50,
+          amountCents: 5000,
+          currency: 'USD',
+          status: 'completed',
+          stripeSessionId: 'cs_live_private_alias',
+          stripeCheckoutSessionId: 'cs_live_private',
+          stripeCheckoutUrl: 'https://checkout.stripe.com/private',
+          stripeCheckoutSessionUrl: 'https://checkout.stripe.com/private/session',
+          stripePaymentIntentId: 'pi_live_private',
+          stripePaymentStatus: 'paid',
+          stripeChargeId: 'ch_live_private',
+          stripeCustomerId: 'cus_live_private',
+          stripeConnectAccountId: 'acct_live_private',
+          stripeRefundId: 're_live_private',
+          checkoutSessionId: 'cs_live_private_legacy',
+          checkoutUrl: 'https://checkout.stripe.com/private/legacy',
+          paymentIntentId: 'pi_live_private_legacy',
+          chargeId: 'ch_live_private_legacy',
+          refundId: 're_live_private_legacy',
+          createdAt: Timestamp.fromDate(new Date('2026-05-24T19:30:00Z')),
+        }),
+        setDoc(doc(db, 'givingPaymentMetadata/giving-1'), {
+          churchId: CHURCH_ID,
+          userId: 'member-1',
+          stripeCheckoutSessionId: 'cs_live_private',
+          stripePaymentIntentId: 'pi_live_private',
+          stripeRefundedChargeId: 'ch_live_private',
+        }),
+      ]);
+    });
+    await assertSucceeds(getDoc(doc(memberDb, 'giving/giving-private-stripe-visible')));
+    await assertFails(getDoc(doc(priestDb, 'giving/giving-private-stripe-visible')));
+    await assertFails(getDoc(doc(treasurerDb, 'giving/giving-private-stripe-visible')));
+    const freshPriestGiving = await assertSucceeds(getDocs(query(
+      collection(priestDb, 'giving'),
+      where('churchId', '==', CHURCH_ID),
+      where('anonymous', '==', false),
+      where('churchReceiptVisible', '==', true),
+      where('donorEmail', '==', ''),
+      where('donorNamePublicSafe', '==', true),
+      where('receiptManagerGivingSafeVersion', '==', 1),
+      where('status', 'in', ['completed', 'refunded']),
+      orderBy('createdAt', 'desc'),
+      limit(10)
+    )));
+    expect(freshPriestGiving.docs.map((giving) => giving.id)).not.toContain('giving-private-stripe-visible');
+    await assertFails(getDoc(doc(memberDb, 'givingPaymentMetadata/giving-1')));
+    await assertFails(getDoc(doc(priestDb, 'givingPaymentMetadata/giving-1')));
+    await assertFails(getDoc(doc(treasurerDb, 'givingPaymentMetadata/giving-1')));
+    await assertFails(getDoc(doc(adminDb, 'givingPaymentMetadata/giving-1')));
+    await assertFails(getDoc(doc(superAdminDb, 'givingPaymentMetadata/giving-1')));
+    await assertFails(setDoc(doc(superAdminDb, 'givingPaymentMetadata/giving-2'), {
+      stripeCheckoutSessionId: 'cs_live_private_2',
+    }));
     await assertFails(setDoc(doc(memberDb, 'giving/giving-2'), { churchId: CHURCH_ID }));
+
+    await assertSucceeds(getDoc(doc(memberDb, 'taxReceipts/giving-1')));
+    await assertFails(getDoc(doc(unverifiedMemberDb, 'taxReceipts/giving-1')));
+    await assertFails(getDoc(doc(anonymousMemberDb, 'taxReceipts/giving-1')));
+    await assertFails(getDoc(doc(priestDb, 'taxReceipts/giving-1')));
+    await assertFails(getDoc(doc(treasurerDb, 'taxReceipts/giving-1')));
+    await assertFails(getDoc(doc(adminDb, 'taxReceipts/giving-1')));
+    await assertFails(getDoc(doc(superAdminDb, 'taxReceipts/giving-1')));
+    await assertSucceeds(getDocs(query(
+      collection(memberDb, 'taxReceipts'),
+      where('userId', '==', 'member-1'),
+      orderBy('issuedAt', 'desc'),
+      limit(10)
+    )));
+    await assertFails(getDocs(query(
+      collection(memberDb, 'taxReceipts'),
+      orderBy('issuedAt', 'desc'),
+      limit(10)
+    )));
+    await assertFails(getDocs(query(
+      collection(priestDb, 'taxReceipts'),
+      where('churchId', '==', CHURCH_ID),
+      orderBy('issuedAt', 'desc'),
+      limit(10)
+    )));
+    await assertFails(setDoc(doc(memberDb, 'taxReceipts/giving-2'), { churchId: CHURCH_ID }));
+
+    await assertSucceeds(getDoc(doc(memberDb, 'taxReceiptSummaries/annual-1')));
+    await assertFails(getDoc(doc(unverifiedMemberDb, 'taxReceiptSummaries/annual-1')));
+    await assertFails(getDoc(doc(anonymousMemberDb, 'taxReceiptSummaries/annual-1')));
+    await assertSucceeds(getDoc(doc(priestDb, 'taxReceiptSummaries/annual-1')));
+    await assertSucceeds(getDoc(doc(treasurerDb, 'taxReceiptSummaries/annual-1')));
+    expect((await getDoc(doc(priestDb, 'taxReceiptSummaries/annual-1'))).data()?.jurisdiction).toBe('CA');
+    await assertFails(getDoc(doc(adminDb, 'taxReceiptSummaries/annual-1')));
+    await assertFails(getDoc(doc(superAdminDb, 'taxReceiptSummaries/annual-1')));
+    await assertSucceeds(getDoc(doc(memberDb, 'taxReceiptSummaries/annual-profile-required')));
+    await assertSucceeds(getDoc(doc(priestDb, 'taxReceiptSummaries/annual-profile-required')));
+    await assertSucceeds(getDoc(doc(treasurerDb, 'taxReceiptSummaries/annual-profile-required')));
+    await assertFails(getDoc(doc(adminDb, 'taxReceiptSummaries/annual-profile-required')));
+    await assertFails(getDoc(doc(superAdminDb, 'taxReceiptSummaries/annual-profile-required')));
+    await assertSucceeds(getDoc(doc(memberDb, 'taxReceiptSummaries/annual-verified-email-required')));
+    await assertSucceeds(getDoc(doc(priestDb, 'taxReceiptSummaries/annual-verified-email-required')));
+    await assertSucceeds(getDoc(doc(treasurerDb, 'taxReceiptSummaries/annual-verified-email-required')));
+    await assertFails(getDoc(doc(adminDb, 'taxReceiptSummaries/annual-verified-email-required')));
+    await assertFails(getDoc(doc(superAdminDb, 'taxReceiptSummaries/annual-verified-email-required')));
+    await assertSucceeds(getDoc(doc(memberDb, 'taxReceiptSummaries/annual-legacy-email')));
+    await assertFails(getDoc(doc(priestDb, 'taxReceiptSummaries/annual-legacy-email')));
+    await assertFails(getDoc(doc(treasurerDb, 'taxReceiptSummaries/annual-legacy-email')));
+    await assertSucceeds(getDocs(query(
+      collection(memberDb, 'taxReceiptSummaries'),
+      where('userId', '==', 'member-1'),
+      orderBy('issuedAt', 'desc'),
+      limit(10)
+    )));
+    await assertFails(getDocs(query(
+      collection(memberDb, 'taxReceiptSummaries'),
+      orderBy('issuedAt', 'desc'),
+      limit(10)
+    )));
+    await assertSucceeds(getDoc(doc(memberDb, 'taxReceiptSummaries/annual-anonymous')));
+    await assertFails(getDoc(doc(priestDb, 'taxReceiptSummaries/annual-anonymous')));
+    await assertFails(getDoc(doc(treasurerDb, 'taxReceiptSummaries/annual-anonymous')));
+    await assertFails(getDoc(doc(superAdminDb, 'taxReceiptSummaries/annual-anonymous')));
+    await assertSucceeds(getDoc(doc(memberDb, 'taxReceiptSummaries/annual-ambiguous-anonymity')));
+    await assertFails(getDoc(doc(priestDb, 'taxReceiptSummaries/annual-ambiguous-anonymity')));
+    await assertFails(getDoc(doc(treasurerDb, 'taxReceiptSummaries/annual-ambiguous-anonymity')));
+    await assertSucceeds(getDoc(doc(memberDb, 'taxReceiptSummaries/single-malformed-visible')));
+    await assertFails(getDoc(doc(priestDb, 'taxReceiptSummaries/single-malformed-visible')));
+    await assertFails(getDoc(doc(treasurerDb, 'taxReceiptSummaries/single-malformed-visible')));
+    await assertSucceeds(getDocs(query(
+      collection(priestDb, 'taxReceiptSummaries'),
+      where('churchId', '==', CHURCH_ID),
+      where('kind', '==', 'annual'),
+      where('donorAnonymous', '==', false),
+      where('churchReceiptVisible', '==', true),
+      where('donorLabelPublicSafe', '==', true),
+      where('receiptManagerSummarySafe', '==', true),
+      where('receiptManagerSummarySafeVersion', '==', 2),
+      orderBy('issuedAt', 'desc'),
+      limit(10)
+    )));
+    await assertFails(getDocs(query(
+      collection(priestDb, 'taxReceiptSummaries'),
+      where('churchId', '==', CHURCH_ID),
+      where('kind', '==', 'annual'),
+      where('donorAnonymous', '==', false),
+      orderBy('issuedAt', 'desc'),
+      limit(10)
+    )));
+    await assertFails(getDocs(query(
+      collection(priestDb, 'taxReceiptSummaries'),
+      where('churchId', '==', CHURCH_ID),
+      where('donorAnonymous', '==', false),
+      where('churchReceiptVisible', '==', true),
+      where('donorLabelPublicSafe', '==', true),
+      orderBy('issuedAt', 'desc'),
+      limit(10)
+    )));
+
+    await testEnv.withSecurityRulesDisabled(async (context) => {
+      await setDoc(doc(dbFor(context), 'taxReceiptSummaries/annual-private-field-leak'), {
+        receiptId: 'annual-private-field-leak',
+        churchId: CHURCH_ID,
+        userId: 'member-1',
+        kind: 'annual',
+        receiptYear: 2025,
+        receiptNumber: 'STN-2025-000014',
+        status: 'sent',
+        donorLabel: 'Member One',
+        donorAnonymous: false,
+        churchReceiptVisible: true,
+        donorEmail: 'member@example.com',
+        donorName: 'Member Legal Name',
+        donorAddress: '10 Donor Street',
+        organizationTaxId: '12-3456789',
+        givingIds: ['giving-1'],
+        contributions: [{ amountCents: 5000, currency: 'USD' }],
+        emailSendingAt: Timestamp.fromDate(new Date('2026-01-15T12:19:00Z')),
+        emailSendAttemptId: 'private-send-attempt-id-20260115',
+        pdfStoragePath: 'taxReceipts/church-1/2025/annual-private-field-leak.pdf',
+        issuedAt: Timestamp.fromDate(new Date('2026-01-15T12:20:00Z')),
+      });
+      await setDoc(doc(dbFor(context), 'taxReceiptSummaries/annual-private-field-safe-marker-leak'), {
+        receiptId: 'annual-private-field-safe-marker-leak',
+        churchId: CHURCH_ID,
+        userId: 'member-1',
+        kind: 'annual',
+        receiptYear: 2025,
+        receiptNumber: 'STN-2025-000015',
+        status: 'sent',
+        donorLabel: 'Member One',
+        donorAnonymous: false,
+        churchReceiptVisible: true,
+        donorLabelPublicSafe: true,
+        receiptManagerSummarySafe: true,
+        receiptManagerSummarySafeVersion: 1,
+        donorEmail: 'member@example.com',
+        organizationTaxId: '12-3456789',
+        emailSendingAt: Timestamp.fromDate(new Date('2026-01-15T12:24:00Z')),
+        emailSendAttemptId: 'private-send-attempt-id-20260115-safe',
+        pdfStoragePath: 'taxReceipts/church-1/2025/annual-private-field-safe-marker-leak.pdf',
+        issuedAt: Timestamp.fromDate(new Date('2026-01-15T12:25:00Z')),
+      });
+      await setDoc(doc(dbFor(context), 'taxReceiptSummaries/annual-email-label-safe-marker-leak'), {
+        receiptId: 'annual-email-label-safe-marker-leak',
+        churchId: CHURCH_ID,
+        userId: 'member-1',
+        kind: 'annual',
+        receiptYear: 2025,
+        receiptNumber: 'STN-2025-000016',
+        status: 'sent',
+        donorLabel: 'member@example.com',
+        donorAnonymous: false,
+        churchReceiptVisible: true,
+        donorLabelPublicSafe: false,
+        receiptManagerSummarySafe: true,
+        receiptManagerSummarySafeVersion: 2,
+        issuedAt: Timestamp.fromDate(new Date('2026-01-15T12:26:00Z')),
+      });
+    });
+    await assertSucceeds(getDoc(doc(memberDb, 'taxReceiptSummaries/annual-private-field-leak')));
+    await assertFails(getDoc(doc(priestDb, 'taxReceiptSummaries/annual-private-field-leak')));
+    await assertFails(getDoc(doc(treasurerDb, 'taxReceiptSummaries/annual-private-field-leak')));
+    await assertSucceeds(getDoc(doc(memberDb, 'taxReceiptSummaries/annual-private-field-safe-marker-leak')));
+    await assertFails(getDoc(doc(priestDb, 'taxReceiptSummaries/annual-private-field-safe-marker-leak')));
+    await assertFails(getDoc(doc(treasurerDb, 'taxReceiptSummaries/annual-private-field-safe-marker-leak')));
+    await assertSucceeds(getDoc(doc(memberDb, 'taxReceiptSummaries/annual-email-label-safe-marker-leak')));
+    await assertFails(getDoc(doc(priestDb, 'taxReceiptSummaries/annual-email-label-safe-marker-leak')));
+    await assertFails(getDoc(doc(treasurerDb, 'taxReceiptSummaries/annual-email-label-safe-marker-leak')));
+    const freshPriestDb = dbFor(verifiedContext('priest-1', 'priest@example.com'));
+    const freshPriestSummaries = await assertSucceeds(getDocs(query(
+      collection(freshPriestDb, 'taxReceiptSummaries'),
+      where('churchId', '==', CHURCH_ID),
+      where('kind', '==', 'annual'),
+      where('donorAnonymous', '==', false),
+      where('churchReceiptVisible', '==', true),
+      where('donorLabelPublicSafe', '==', true),
+      where('receiptManagerSummarySafe', '==', true),
+      where('receiptManagerSummarySafeVersion', '==', 2),
+      orderBy('issuedAt', 'desc'),
+      limit(10)
+    )));
+    expect(freshPriestSummaries.docs.map((summary) => summary.id)).toContain('annual-profile-required');
+    expect(freshPriestSummaries.docs.map((summary) => summary.id)).toContain('annual-verified-email-required');
+    expect(freshPriestSummaries.docs.map((summary) => summary.id)).not.toContain('annual-private-field-leak');
+    expect(freshPriestSummaries.docs.map((summary) => summary.id)).not.toContain('annual-private-field-safe-marker-leak');
+    expect(freshPriestSummaries.docs.map((summary) => summary.id)).not.toContain('annual-email-label-safe-marker-leak');
+    await testEnv.withSecurityRulesDisabled(async (context) => {
+      await setDoc(doc(dbFor(context), 'taxReceiptSummaries/annual-alias-private-field-current-marker-leak'), {
+        receiptId: 'annual-alias-private-field-current-marker-leak',
+        churchId: CHURCH_ID,
+        userId: 'member-1',
+        kind: 'annual',
+        receiptYear: 2025,
+        receiptNumber: 'STN-2025-000017',
+        status: 'sent',
+        donorLabel: 'Member One',
+        donorAnonymous: false,
+        churchReceiptVisible: true,
+        donorLabelPublicSafe: true,
+        receiptManagerSummarySafe: true,
+        receiptManagerSummarySafeVersion: 2,
+        taxReceiptLegalName: 'Member Legal Name',
+        taxReceiptAddress: {
+          line1: '10 Donor Street',
+          city: 'Chicago',
+          region: 'IL',
+          postalCode: '60601',
+          country: 'US',
+        },
+        issuedBy: 'system',
+        pdfTemplateVersion: 'tax-receipt-pdf-v1',
+        partialRefundGivingIds: ['giving-private-refund'],
+        correctionForGivingId: 'giving-private-correction',
+        stripePaymentIntentId: 'pi_live_private',
+        stripeCheckoutSessionUrl: 'https://checkout.stripe.com/private/session',
+        stripeRefundStatus: 'partially_refunded',
+        stripeAmountRefundedCents: 1000,
+        stripeConnectAccountId: 'acct_private',
+        checkoutSessionExpiresAt: Timestamp.fromDate(new Date('2026-01-15T13:00:00Z')),
+        checkoutUrl: 'https://checkout.stripe.com/private/legacy',
+        eventId: 'evt_private',
+        correctedBy: 'treasurer-1',
+        correctionMarkedAt: Timestamp.fromDate(new Date('2026-01-15T13:01:00Z')),
+        correctionMarkedBy: 'treasurer-2',
+        voidedBy: 'stripe',
+        issuedAt: Timestamp.fromDate(new Date('2026-01-15T12:28:00Z')),
+      });
+    });
+    await assertSucceeds(getDoc(doc(memberDb, 'taxReceiptSummaries/annual-alias-private-field-current-marker-leak')));
+    await assertFails(getDoc(doc(priestDb, 'taxReceiptSummaries/annual-alias-private-field-current-marker-leak')));
+    await assertFails(getDoc(doc(treasurerDb, 'taxReceiptSummaries/annual-alias-private-field-current-marker-leak')));
+    await assertFails(setDoc(doc(priestDb, 'taxReceiptSummaries/annual-2'), { churchId: CHURCH_ID }));
+
+    await assertFails(getDoc(doc(memberDb, 'taxReceiptEvents/event-1')));
+    await assertFails(getDoc(doc(priestDb, 'taxReceiptEvents/event-1')));
+    await assertFails(getDoc(doc(treasurerDb, 'taxReceiptEvents/event-1')));
+    await assertFails(getDoc(doc(adminDb, 'taxReceiptEvents/event-1')));
+    await assertFails(getDoc(doc(superAdminDb, 'taxReceiptEvents/event-1')));
+    await assertFails(setDoc(doc(superAdminDb, 'taxReceiptEvents/event-2'), { churchId: CHURCH_ID }));
+
+    await assertFails(getDoc(doc(memberDb, 'stripeWebhookEvents/evt_checkout_completed')));
+    await assertFails(getDoc(doc(priestDb, 'stripeWebhookEvents/evt_checkout_completed')));
+    await assertFails(getDoc(doc(treasurerDb, 'stripeWebhookEvents/evt_checkout_completed')));
+    await assertFails(getDoc(doc(adminDb, 'stripeWebhookEvents/evt_checkout_completed')));
+    await assertFails(getDoc(doc(superAdminDb, 'stripeWebhookEvents/evt_checkout_completed')));
+    await assertFails(setDoc(doc(superAdminDb, 'stripeWebhookEvents/evt_manual'), { status: 'processed' }));
+
+    await assertFails(getDoc(doc(memberDb, `churchPaymentSettings/${CHURCH_ID}`)));
+    await assertFails(getDoc(doc(priestDb, `churchPaymentSettings/${CHURCH_ID}`)));
+    await assertFails(getDoc(doc(treasurerDb, `churchPaymentSettings/${CHURCH_ID}`)));
+    await assertFails(getDoc(doc(adminDb, `churchPaymentSettings/${CHURCH_ID}`)));
+    await assertFails(getDoc(doc(superAdminDb, `churchPaymentSettings/${CHURCH_ID}`)));
+    await assertFails(setDoc(doc(superAdminDb, `churchPaymentSettings/${CHURCH_ID}`), {
+      stripeConnectEnabled: false,
+    }));
+  });
+
+  it('fails closed for receipt-manager giving reads with embedded email-shaped donor labels', async () => {
+    await testEnv.withSecurityRulesDisabled(async (context) => {
+      await setDoc(doc(dbFor(context), 'giving/giving-email-label-visible'), {
+        churchId: CHURCH_ID,
+        userId: 'member-1',
+        anonymous: false,
+        churchReceiptVisible: true,
+        donorName: 'Contact member@example.com',
+        donorEmail: '',
+        donorNamePublicSafe: false,
+        receiptManagerGivingSafeVersion: 0,
+        amount: 60,
+        amountCents: 6000,
+        currency: 'USD',
+        status: 'completed',
+        createdAt: Timestamp.fromDate(new Date('2026-05-24T19:00:00Z')),
+      });
+    });
+
+    const memberDb = dbFor(verifiedContext('member-1', 'member@example.com'));
+    const priestDb = dbFor(verifiedContext('priest-1', 'priest@example.com'));
+    const treasurerDb = dbFor(verifiedContext('treasurer-1', 'treasurer@example.com'));
+
+    await assertSucceeds(getDoc(doc(memberDb, 'giving/giving-email-label-visible')));
+    await assertFails(getDoc(doc(priestDb, 'giving/giving-email-label-visible')));
+    await assertFails(getDoc(doc(treasurerDb, 'giving/giving-email-label-visible')));
+    const priestGiving = await assertSucceeds(getDocs(query(
+      collection(priestDb, 'giving'),
+      where('churchId', '==', CHURCH_ID),
+      where('anonymous', '==', false),
+      where('churchReceiptVisible', '==', true),
+      where('donorEmail', '==', ''),
+      where('donorNamePublicSafe', '==', true),
+      where('receiptManagerGivingSafeVersion', '==', 1),
+      where('status', 'in', ['completed', 'refunded']),
+      orderBy('createdAt', 'desc'),
+      limit(10)
+    )));
+    expect(priestGiving.docs.map((giving) => giving.id)).not.toContain('giving-email-label-visible');
+  });
+
+  it('fails closed for receipt-manager reads with reserved anonymous public labels on non-anonymous rows', async () => {
+    await testEnv.withSecurityRulesDisabled(async (context) => {
+      const db = dbFor(context);
+      await Promise.all([
+        setDoc(doc(db, 'giving/giving-reserved-anonymous-label'), {
+          churchId: CHURCH_ID,
+          userId: 'member-1',
+          anonymous: false,
+          churchReceiptVisible: true,
+          donorName: 'Anonymous donor',
+          donorEmail: '',
+          donorNamePublicSafe: true,
+          receiptManagerGivingSafeVersion: 1,
+          amount: 60,
+          amountCents: 6000,
+          currency: 'USD',
+          status: 'completed',
+          createdAt: Timestamp.fromDate(new Date('2026-05-24T19:05:00Z')),
+        }),
+        setDoc(doc(db, 'taxReceiptSummaries/annual-reserved-anonymous-label'), {
+          receiptId: 'annual-reserved-anonymous-label',
+          churchId: CHURCH_ID,
+          userId: 'member-1',
+          kind: 'annual',
+          receiptYear: 2025,
+          receiptNumber: 'STN-2025-000018',
+          status: 'sent',
+          donorLabel: 'Anonymous donor',
+          donorAnonymous: false,
+          churchReceiptVisible: true,
+          donorLabelPublicSafe: true,
+          receiptManagerSummarySafe: true,
+          receiptManagerSummarySafeVersion: 2,
+          issuedAt: Timestamp.fromDate(new Date('2026-01-15T12:27:00Z')),
+        }),
+      ]);
+    });
+
+    const memberDb = dbFor(verifiedContext('member-1', 'member@example.com'));
+    const priestDb = dbFor(verifiedContext('priest-1', 'priest@example.com'));
+    const treasurerDb = dbFor(verifiedContext('treasurer-1', 'treasurer@example.com'));
+
+    await assertSucceeds(getDoc(doc(memberDb, 'giving/giving-reserved-anonymous-label')));
+    await assertFails(getDoc(doc(priestDb, 'giving/giving-reserved-anonymous-label')));
+    await assertFails(getDoc(doc(treasurerDb, 'giving/giving-reserved-anonymous-label')));
+    await assertSucceeds(getDoc(doc(memberDb, 'taxReceiptSummaries/annual-reserved-anonymous-label')));
+    await assertFails(getDoc(doc(priestDb, 'taxReceiptSummaries/annual-reserved-anonymous-label')));
+    await assertFails(getDoc(doc(treasurerDb, 'taxReceiptSummaries/annual-reserved-anonymous-label')));
   });
 
   it('enforces event, newsletter, and post authoring permissions', async () => {
@@ -460,6 +1223,31 @@ describe('Firestore rules', () => {
       updatedAt: serverTimestamp(),
       publishedAt: null,
     }));
+
+    await testEnv.withSecurityRulesDisabled(async (context) => {
+      await updateDoc(doc(dbFor(context), `churches/${CHURCH_ID}`), { isActive: false });
+    });
+
+    await assertSucceeds(getDoc(doc(memberDb, `churches/${CHURCH_ID}/members/member-1`)));
+    await assertFails(getDoc(doc(memberDb, 'events/event-1')));
+    await assertFails(setDoc(doc(adminDb, 'events/event-inactive-create'), {
+      ...eventPayload,
+      title: 'Inactive Event',
+      createdAt: serverTimestamp(),
+    }));
+    await assertFails(getDoc(doc(memberDb, `churches/${CHURCH_ID}/posts/post-published`)));
+    await assertFails(setDoc(doc(adminDb, `churches/${CHURCH_ID}/posts/admin-post-inactive`), {
+      churchId: CHURCH_ID,
+      authorId: 'admin-1',
+      authorName: 'Admin',
+      title: 'Inactive Admin Post',
+      contentHtml: '<p>Hello</p>',
+      contentJSON: { type: 'doc' },
+      status: 'draft',
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+      publishedAt: null,
+    }));
   });
 });
 
@@ -531,6 +1319,56 @@ describe('Storage rules', () => {
     );
     await assertFails(
       uploadString(ref(adminStorage, `churches/${CHURCH_ID}/posts/missing-post/file.pdf`), 'pdf-data', 'raw', {
+        contentType: 'application/pdf',
+      })
+    );
+
+    await testEnv.withSecurityRulesDisabled(async (context) => {
+      await updateDoc(doc(dbFor(context), `churches/${CHURCH_ID}`), { isActive: false });
+    });
+
+    await assertFails(getMetadata(ref(memberStorage, attachmentPath)));
+    await assertFails(
+      uploadString(ref(adminStorage, `churches/${CHURCH_ID}/posts/post-1/inactive.pdf`), 'pdf-data', 'raw', {
+        contentType: 'application/pdf',
+      })
+    );
+  });
+
+  it('keeps retained tax receipt PDFs backend-only for every client role', async () => {
+    const receiptPdfPath = `taxReceipts/${CHURCH_ID}/2026/giving-tax-1.pdf`;
+    await testEnv.withSecurityRulesDisabled(async (context) => {
+      await uploadString(ref(storageFor(context), receiptPdfPath), '%PDF-1.7 retained tax receipt', 'raw', {
+        contentType: 'application/pdf',
+        customMetadata: {
+          retentionPurpose: 'official_tax_receipt_copy',
+          receiptId: 'giving-tax-1',
+        },
+      });
+    });
+
+    const memberStorage = storageFor(verifiedContext('member-1', 'member@example.com'));
+    const priestStorage = storageFor(verifiedContext('priest-1', 'priest@example.com'));
+    const treasurerStorage = storageFor(verifiedContext('treasurer-1', 'treasurer@example.com'));
+    const adminStorage = storageFor(verifiedContext('admin-1', 'admin@example.com'));
+    const superAdminStorage = storageFor(verifiedContext('super-1', 'super@example.com', { superAdmin: true }));
+    const guestStorage = storageFor(anonymousContext());
+    const publicStorage = storageFor(unauthenticatedContext());
+
+    await assertFails(getMetadata(ref(memberStorage, receiptPdfPath)));
+    await assertFails(getMetadata(ref(priestStorage, receiptPdfPath)));
+    await assertFails(getMetadata(ref(treasurerStorage, receiptPdfPath)));
+    await assertFails(getMetadata(ref(adminStorage, receiptPdfPath)));
+    await assertFails(getMetadata(ref(superAdminStorage, receiptPdfPath)));
+    await assertFails(getMetadata(ref(guestStorage, receiptPdfPath)));
+    await assertFails(getMetadata(ref(publicStorage, receiptPdfPath)));
+    await assertFails(
+      uploadString(ref(memberStorage, receiptPdfPath), '%PDF-1.7 donor overwrite', 'raw', {
+        contentType: 'application/pdf',
+      })
+    );
+    await assertFails(
+      uploadString(ref(priestStorage, `taxReceipts/${CHURCH_ID}/2026/priest-write.pdf`), '%PDF-1.7 priest', 'raw', {
         contentType: 'application/pdf',
       })
     );

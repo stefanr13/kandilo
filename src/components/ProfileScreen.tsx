@@ -20,7 +20,7 @@ import { getExtraCopy } from '../localization/extra';
 import { getFirebaseAuthError, signOut } from '../lib/auth';
 import { joinChurch } from '../lib/api/churches';
 import { leaveChurch, listAllChurches } from '../lib/db/churches';
-import { getUserProfile, updateUserAvatar, updateUserProfile } from '../lib/db/profile';
+import { EMPTY_TAX_RECEIPT_ADDRESS, getUserProfile, updateUserAvatar, updateUserProfile } from '../lib/db/profile';
 import { uploadUserAvatar } from '../lib/storage/uploads';
 
 interface ProfileScreenProps {
@@ -119,6 +119,8 @@ export default function ProfileScreen({ onBack, language, onLanguageChange, user
     description: '',
     showInDirectory: true,
     preferredLanguage: language,
+    taxReceiptLegalName: '',
+    taxReceiptAddress: EMPTY_TAX_RECEIPT_ADDRESS,
   });
 
   useEffect(() => {
@@ -142,6 +144,8 @@ export default function ProfileScreen({ onBack, language, onLanguageChange, user
           description: profile?.description ?? '',
           showInDirectory: profile?.showInDirectory ?? true,
           preferredLanguage: profile?.preferredLanguage ?? language,
+          taxReceiptLegalName: profile?.taxReceiptLegalName ?? '',
+          taxReceiptAddress: profile?.taxReceiptAddress ?? EMPTY_TAX_RECEIPT_ADDRESS,
         });
       })
       .catch((error) => {
@@ -202,6 +206,8 @@ export default function ProfileScreen({ onBack, language, onLanguageChange, user
         ministries: formData.ministries,
         description: formData.description.trim(),
         showInDirectory: formData.showInDirectory,
+        taxReceiptLegalName: formData.taxReceiptLegalName,
+        taxReceiptAddress: formData.taxReceiptAddress,
       });
 
       if (formData.preferredLanguage !== language) {
@@ -460,6 +466,116 @@ export default function ProfileScreen({ onBack, language, onLanguageChange, user
                 onChange={(e) => setFormData({...formData, cell: e.target.value})}
                 className="w-full bg-gray-50 border-none rounded-2xl pl-14 pr-6 py-4 text-sm font-bold text-gray-900 focus:ring-2 focus:ring-[#800000]/20 transition-all"
               />
+            </div>
+          </div>
+
+          <div className="space-y-3 border-t border-gray-100 pt-6">
+            <div className="flex items-center gap-2">
+              <FileText size={16} className="text-[#800000]" />
+              <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">
+                {extra.taxReceiptDetails}
+              </label>
+            </div>
+            <p className="rounded-2xl bg-gray-50 px-5 py-4 text-xs font-bold leading-relaxed text-gray-500">
+              {extra.taxReceiptPrivacyNote}
+            </p>
+            <div className="space-y-2">
+              <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">
+                {extra.taxReceiptLegalName}
+              </label>
+              <input
+                type="text"
+                value={formData.taxReceiptLegalName}
+                onChange={(e) => setFormData({ ...formData, taxReceiptLegalName: e.target.value })}
+                placeholder={formData.fullName}
+                className="w-full bg-gray-50 border-none rounded-2xl px-6 py-4 text-sm font-bold text-gray-900 focus:ring-2 focus:ring-[#800000]/20 transition-all"
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">
+                {extra.taxReceiptAddressLine1}
+              </label>
+              <input
+                type="text"
+                value={formData.taxReceiptAddress.line1}
+                onChange={(e) => setFormData({
+                  ...formData,
+                  taxReceiptAddress: { ...formData.taxReceiptAddress, line1: e.target.value },
+                })}
+                className="w-full bg-gray-50 border-none rounded-2xl px-6 py-4 text-sm font-bold text-gray-900 focus:ring-2 focus:ring-[#800000]/20 transition-all"
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">
+                {extra.taxReceiptAddressLine2}
+              </label>
+              <input
+                type="text"
+                value={formData.taxReceiptAddress.line2}
+                onChange={(e) => setFormData({
+                  ...formData,
+                  taxReceiptAddress: { ...formData.taxReceiptAddress, line2: e.target.value },
+                })}
+                className="w-full bg-gray-50 border-none rounded-2xl px-6 py-4 text-sm font-bold text-gray-900 focus:ring-2 focus:ring-[#800000]/20 transition-all"
+              />
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="space-y-2">
+                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">
+                  {extra.taxReceiptCity}
+                </label>
+                <input
+                  type="text"
+                  value={formData.taxReceiptAddress.city}
+                  onChange={(e) => setFormData({
+                    ...formData,
+                    taxReceiptAddress: { ...formData.taxReceiptAddress, city: e.target.value },
+                  })}
+                  className="w-full bg-gray-50 border-none rounded-2xl px-6 py-4 text-sm font-bold text-gray-900 focus:ring-2 focus:ring-[#800000]/20 transition-all"
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">
+                  {extra.taxReceiptRegion}
+                </label>
+                <input
+                  type="text"
+                  value={formData.taxReceiptAddress.region}
+                  onChange={(e) => setFormData({
+                    ...formData,
+                    taxReceiptAddress: { ...formData.taxReceiptAddress, region: e.target.value },
+                  })}
+                  className="w-full bg-gray-50 border-none rounded-2xl px-6 py-4 text-sm font-bold text-gray-900 focus:ring-2 focus:ring-[#800000]/20 transition-all"
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">
+                  {extra.taxReceiptPostalCode}
+                </label>
+                <input
+                  type="text"
+                  value={formData.taxReceiptAddress.postalCode}
+                  onChange={(e) => setFormData({
+                    ...formData,
+                    taxReceiptAddress: { ...formData.taxReceiptAddress, postalCode: e.target.value },
+                  })}
+                  className="w-full bg-gray-50 border-none rounded-2xl px-6 py-4 text-sm font-bold text-gray-900 focus:ring-2 focus:ring-[#800000]/20 transition-all"
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">
+                  {extra.taxReceiptCountry}
+                </label>
+                <input
+                  type="text"
+                  value={formData.taxReceiptAddress.country}
+                  onChange={(e) => setFormData({
+                    ...formData,
+                    taxReceiptAddress: { ...formData.taxReceiptAddress, country: e.target.value },
+                  })}
+                  className="w-full bg-gray-50 border-none rounded-2xl px-6 py-4 text-sm font-bold text-gray-900 focus:ring-2 focus:ring-[#800000]/20 transition-all"
+                />
+              </div>
             </div>
           </div>
 

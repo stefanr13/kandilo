@@ -2,30 +2,75 @@
  * One-time setup script: promotes a Firebase Auth user to Priest in a church.
  *
  * Usage:
- *   node scripts/make-priest.js <userUid> <churchId>
+ *   node scripts/make-priest.js <userUid> <churchId> --confirm-project kandilo-2f7a9
  *
  * Example (after signing up in the app and finding your UID in Firebase Console → Auth):
- *   node scripts/make-priest.js abc123uid st-simeon-south-miami
+ *   node scripts/make-priest.js abc123uid st-simeon-south-miami --confirm-project kandilo-2f7a9
  *
  * Requires GOOGLE_APPLICATION_CREDENTIALS or firebase-admin default credentials.
- * Easiest: run `firebase login` first, then this script uses the CLI credentials.
+ * Easiest: run `npx --no-install firebase login` first, then this script uses the CLI credentials.
  */
 
 import { initializeApp, applicationDefault } from 'firebase-admin/app';
 import { getAuth } from 'firebase-admin/auth';
 import { getFirestore, FieldValue } from 'firebase-admin/firestore';
 
-const [, , uid, churchId] = process.argv;
+const expectedProjectId = 'kandilo-2f7a9';
 
-if (!uid || !churchId) {
-  console.error('Usage: node scripts/make-priest.js <userUid> <churchId>');
-  console.error('Example: node scripts/make-priest.js abc123 st-simeon-south-miami');
+function usage() {
+  console.error(`Usage: node scripts/make-priest.js <userUid> <churchId> --confirm-project ${expectedProjectId}`);
+  console.error(`Example: node scripts/make-priest.js abc123 st-simeon-south-miami --confirm-project ${expectedProjectId}`);
+}
+
+function fail(message) {
+  console.error(message);
+  usage();
   process.exit(1);
 }
 
-initializeApp({ credential: applicationDefault() });
-const auth = getAuth();
-const db = getFirestore();
+function parseArgs(rawArgs) {
+  const positional = [];
+  let confirmProject = '';
+
+  for (let index = 0; index < rawArgs.length; index += 1) {
+    const arg = rawArgs[index];
+    if (arg === '--confirm-project') {
+      const value = rawArgs[index + 1];
+      if (!value || value.startsWith('--')) {
+        fail('Missing value for --confirm-project.');
+      }
+      confirmProject = value;
+      index += 1;
+    } else if (arg.startsWith('--')) {
+      fail(`Unknown argument ${arg}.`);
+    } else {
+      positional.push(arg);
+    }
+  }
+
+  if (positional.length !== 2) {
+    fail('Expected exactly <userUid> and <churchId>.');
+  }
+
+  return {
+    uid: positional[0],
+    churchId: positional[1],
+    confirmProject,
+  };
+}
+
+function assertExpectedProjectConfirmation(confirmProject) {
+  if (confirmProject !== expectedProjectId) {
+    fail(`Refusing to grant priest membership without --confirm-project ${expectedProjectId}.`);
+  }
+}
+
+const { uid, churchId, confirmProject } = parseArgs(process.argv.slice(2));
+assertExpectedProjectConfirmation(confirmProject);
+
+const app = initializeApp({ credential: applicationDefault(), projectId: expectedProjectId });
+const auth = getAuth(app);
+const db = getFirestore(app);
 
 async function run() {
   const churchRef = db.collection('churches').doc(churchId);

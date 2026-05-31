@@ -10,7 +10,7 @@ export async function acceptInvitation(invitationId: string): Promise<{ success:
 export async function sendInvitation(input: {
   churchId: string;
   inviteeEmail: string;
-  role?: 'member' | 'admin';
+  role?: 'member' | 'admin' | 'treasurer';
 }): Promise<{ success: boolean; invitationId: string; inviteUrl?: string; emailSent?: boolean }> {
   return callFunction<
     typeof input,

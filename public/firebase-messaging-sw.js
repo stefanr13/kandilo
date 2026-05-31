@@ -4,8 +4,8 @@
 // Do not hardcode the config here; GitHub secret scanning flags Google API keys.
 // ─────────────────────────────────────────────────────────────────────────────
 
-importScripts('https://www.gstatic.com/firebasejs/12.11.0/firebase-app-compat.js');
-importScripts('https://www.gstatic.com/firebasejs/12.11.0/firebase-messaging-compat.js');
+importScripts('https://www.gstatic.com/firebasejs/12.13.0/firebase-app-compat.js');
+importScripts('https://www.gstatic.com/firebasejs/12.13.0/firebase-messaging-compat.js');
 importScripts('/firebase-messaging-sw-config.js');
 
 const firebaseConfig = self.KANDILO_FIREBASE_MESSAGING_CONFIG;

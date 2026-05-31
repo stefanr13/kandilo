@@ -12,6 +12,19 @@ vi.mock('../firebase-functions', () => ({
 }));
 
 const httpsCallableMock = vi.mocked(httpsCallable);
+const DONATION_AND_RECEIPT_REPLAY_PROTECTED_FUNCTIONS = [
+  'createStripeCheckoutSession',
+  'createStripePaymentIntent',
+  'sendTaxReceipt',
+  'sendCorrectedTaxReceipt',
+  'sendAnnualTaxReceipt',
+  'sendCorrectedAnnualTaxReceipt',
+  'downloadTaxReceiptPdf',
+  'sendChurchAnnualTaxReceipts',
+  'sendChurchCorrectedAnnualTaxReceipts',
+  'createChurchStripeConnectAccountAsSuperAdmin',
+  'createChurchStripeConnectOnboardingLink',
+] as const;
 
 function createCallableMock(data: unknown) {
   const callable = vi.fn().mockResolvedValue({ data });
@@ -61,6 +74,51 @@ describe('callFunction', () => {
       limitedUseAppCheckTokens: true,
     });
     expect(callable).toHaveBeenCalledWith({ email: 'user@example.com' });
+  });
+
+  it('uses limited-use App Check tokens for corrected annual receipt batches', async () => {
+    const callable = createCallableMock({ success: true, emailSentCount: 2 });
+    httpsCallableMock.mockReturnValue(callable);
+
+    await expect(
+      callFunction('sendChurchCorrectedAnnualTaxReceipts', { churchId: 'church-1', year: 2025 })
+    ).resolves.toEqual({ success: true, emailSentCount: 2 });
+
+    expect(httpsCallableMock).toHaveBeenCalledWith(functions, 'sendChurchCorrectedAnnualTaxReceipts', {
+      limitedUseAppCheckTokens: true,
+    });
+    expect(callable).toHaveBeenCalledWith({ churchId: 'church-1', year: 2025 });
+  });
+
+  it('uses limited-use App Check tokens for private church payment settings updates', async () => {
+    const callable = createCallableMock({ success: true });
+    httpsCallableMock.mockReturnValue(callable);
+
+    await expect(
+      callFunction('updateChurchPaymentSettingsAsSuperAdmin', {
+        churchId: 'church-1',
+        settings: { stripeConnectEnabled: true, stripeConnectAccountId: 'acct_test123456' },
+      })
+    ).resolves.toEqual({ success: true });
+
+    expect(httpsCallableMock).toHaveBeenCalledWith(functions, 'updateChurchPaymentSettingsAsSuperAdmin', {
+      limitedUseAppCheckTokens: true,
+    });
+  });
+
+  it('uses limited-use App Check tokens for every donation and receipt callable', async () => {
+    for (const functionName of DONATION_AND_RECEIPT_REPLAY_PROTECTED_FUNCTIONS) {
+      const callable = createCallableMock({ ok: functionName });
+      httpsCallableMock.mockReset();
+      httpsCallableMock.mockReturnValue(callable);
+
+      await expect(callFunction(functionName, { marker: functionName })).resolves.toEqual({ ok: functionName });
+
+      expect(httpsCallableMock).toHaveBeenCalledWith(functions, functionName, {
+        limitedUseAppCheckTokens: true,
+      });
+      expect(callable).toHaveBeenCalledWith({ marker: functionName });
+    }
   });
 
   it('does not request replay protection for regular functions', async () => {

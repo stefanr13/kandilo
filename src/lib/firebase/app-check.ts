@@ -1,5 +1,6 @@
 import { initializeAppCheck, ReCaptchaEnterpriseProvider } from 'firebase/app-check';
 import app from './app';
+import { FIREBASE_EMULATORS_ENABLED } from './emulators';
 
 const appCheckSiteKey = import.meta.env.VITE_FIREBASE_APP_CHECK_SITE_KEY;
 const appCheckDebugToken = import.meta.env.VITE_FIREBASE_APP_CHECK_DEBUG_TOKEN;
@@ -8,6 +9,10 @@ let appCheckInitialized = false;
 
 export function ensureAppCheckInitialized(): void {
   if (appCheckInitialized || typeof window === 'undefined') {
+    return;
+  }
+
+  if (FIREBASE_EMULATORS_ENABLED) {
     return;
   }
 

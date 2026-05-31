@@ -1,8 +1,9 @@
 import { Suspense, lazy } from 'react';
 import type { User as FirebaseUser } from 'firebase/auth';
 import AppLoadingScreen from '../../components/app/AppLoadingScreen';
-import { Role } from '../../domain/church';
+import type { Role } from '../../domain/church';
 import type { Language } from '../../types';
+import type { StripeConnectReturnStatus } from '../../app/navigation';
 import ManagementDashboardTab from './ManagementDashboardTab';
 import ManagementEventSheet from './ManagementEventSheet';
 import ManagementEventsTab from './ManagementEventsTab';
@@ -11,8 +12,10 @@ import ManagementMembersTab from './ManagementMembersTab';
 import ManagementNewslettersTab from './ManagementNewslettersTab';
 import ManagementNotificationsTab from './ManagementNotificationsTab';
 import ManagementPostsTab from './ManagementPostsTab';
+import ManagementReceiptsTab from './ManagementReceiptsTab';
 import ManagementScannerTab from './ManagementScannerTab';
 import ManagementSidebar from './ManagementSidebar';
+import type { ManagementTab } from './types';
 import { useManagementView } from './useManagementView';
 
 const PostEditor = lazy(() => import('../../components/PostEditor'));
@@ -22,6 +25,10 @@ interface ManagementViewProps {
   userRole: Role;
   currentUser: FirebaseUser | null;
   language?: Language;
+  initialTab?: ManagementTab | null;
+  stripeConnectReturnStatus?: StripeConnectReturnStatus | null;
+  stripeConnectReturnSequence?: number | null;
+  onStripeConnectReturnConsumed?: () => void;
 }
 
 export default function ManagementView({
@@ -29,15 +36,23 @@ export default function ManagementView({
   userRole,
   currentUser,
   language = 'English',
+  initialTab = null,
+  stripeConnectReturnStatus = null,
+  stripeConnectReturnSequence = null,
+  onStripeConnectReturnConsumed,
 }: ManagementViewProps) {
   const management = useManagementView({
     churchId,
     userRole,
     currentUserId: currentUser?.uid ?? null,
     language,
+    initialTab,
+    stripeConnectReturnStatus,
+    stripeConnectReturnSequence,
+    onStripeConnectReturnConsumed,
   });
 
-  if (management.editingPost !== undefined) {
+  if (management.isAdminOrPriest && management.editingPost !== undefined) {
     return (
       <Suspense fallback={<AppLoadingScreen variant="panel" />}>
         <PostEditor
@@ -59,10 +74,12 @@ export default function ManagementView({
         activeTab={management.activeTab}
         onTabChange={management.setActiveTab}
         language={language}
+        showOperations={management.isAdminOrPriest}
+        showReceipts={management.canManageReceipts}
       />
 
       <div className="flex-1 flex flex-col min-w-0" onClick={(event) => event.stopPropagation()}>
-        {management.activeTab === 'dashboard' && (
+        {management.isAdminOrPriest && management.activeTab === 'dashboard' && (
           <ManagementDashboardTab
             activeMemberCount={management.activeMemberCount}
             upcomingEventCount={management.upcomingEventCount}
@@ -85,7 +102,7 @@ export default function ManagementView({
           />
         )}
 
-        {management.activeTab === 'members' && (
+        {management.isAdminOrPriest && management.activeTab === 'members' && (
           <ManagementMembersTab
             filteredMembers={management.filteredMembers}
             membersLoading={management.membersLoading}
@@ -105,7 +122,7 @@ export default function ManagementView({
           />
         )}
 
-        {management.activeTab === 'events' && (
+        {management.isAdminOrPriest && management.activeTab === 'events' && (
           <ManagementEventsTab
             events={management.events}
             eventsLoading={management.eventsLoading}
@@ -117,7 +134,7 @@ export default function ManagementView({
           />
         )}
 
-        {management.activeTab === 'posts' && (
+        {management.isAdminOrPriest && management.activeTab === 'posts' && (
           <ManagementPostsTab
             posts={management.posts}
             postsLoading={management.postsLoading}
@@ -130,7 +147,7 @@ export default function ManagementView({
           />
         )}
 
-        {management.activeTab === 'newsletters' && (
+        {management.isAdminOrPriest && management.activeTab === 'newsletters' && (
           <ManagementNewslettersTab
             newsletters={management.newsletters}
             newslettersLoading={management.newslettersLoading}
@@ -145,7 +162,7 @@ export default function ManagementView({
           />
         )}
 
-        {management.activeTab === 'notifications' && (
+        {management.isAdminOrPriest && management.activeTab === 'notifications' && (
           <ManagementNotificationsTab
             isAdminOrPriest={management.isAdminOrPriest}
             sending={management.notificationSending}
@@ -156,7 +173,40 @@ export default function ManagementView({
           />
         )}
 
-        {management.activeTab === 'scanner' && (
+        {management.canManageReceipts && management.activeTab === 'receipts' && (
+          <ManagementReceiptsTab
+            records={management.receiptRecords}
+            annualSummaries={management.annualReceiptSummaries}
+            loading={management.receiptRecordsLoading}
+            error={management.receiptRecordsError}
+            notice={management.receiptNotice}
+            sendingReceiptId={management.sendingReceiptId}
+            sendingAnnualReceiptKey={management.sendingAnnualReceiptKey}
+            sendingBulkAnnualReceiptYear={management.sendingBulkAnnualReceiptYear}
+            sendingBulkCorrectedAnnualReceiptYear={management.sendingBulkCorrectedAnnualReceiptYear}
+            stripeOnboardingLoading={management.stripeOnboardingLoading}
+            stripeConnectSetupStatus={management.stripeConnectSetupStatus}
+            stripeConnectSetupStatusLoading={management.stripeConnectSetupStatusLoading}
+            canManageReceipts={management.canManageReceipts}
+            taxReceiptIssuanceState={management.taxReceiptIssuanceState}
+            taxReceiptIssuanceReady={management.taxReceiptIssuanceReady}
+            onOpenStripeConnectOnboarding={() => void management.handleOpenStripeConnectOnboarding()}
+            onSendReceipt={(givingId) => void management.handleSendTaxReceipt(givingId)}
+            onSendCorrectedReceipt={(givingId) => void management.handleSendCorrectedTaxReceipt(givingId)}
+            onSendAnnualReceipt={(userId, year, acknowledgePreviouslyReceipted) =>
+              void management.handleSendAnnualTaxReceipt(userId, year, acknowledgePreviouslyReceipted)}
+            onSendCorrectedAnnualReceipt={(userId, year, acknowledgePreviouslyReceipted) =>
+              void management.handleSendCorrectedAnnualTaxReceipt(userId, year, acknowledgePreviouslyReceipted)}
+            onSendChurchAnnualReceipts={(year, acknowledgePreviouslyReceipted) =>
+              void management.handleSendChurchAnnualTaxReceipts(year, acknowledgePreviouslyReceipted)}
+            onSendChurchCorrectedAnnualReceipts={(year, acknowledgePreviouslyReceipted) =>
+              void management.handleSendChurchCorrectedAnnualTaxReceipts(year, acknowledgePreviouslyReceipted)}
+            language={language}
+            churchTimezone={management.churchTimezone}
+          />
+        )}
+
+        {management.isAdminOrPriest && management.activeTab === 'scanner' && (
           <ManagementScannerTab
             churchId={churchId}
             currentUserId={currentUser?.uid ?? null}

@@ -1,10 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import {
+  coerceManagementTabForRole,
   countActiveMembers,
   countSentNewsletters,
   countUpcomingEvents,
   filterMembers,
+  getDefaultManagementTab,
   getNextMemberStatus,
+  isManagementTabAllowedForRole,
 } from './management-model';
 import type { FirestoreEvent } from '../../lib/db/events';
 import type { FirestoreMember } from '../../lib/db/memberships';
@@ -78,5 +81,20 @@ describe('management model', () => {
       newsletter('published-pending-email', 'published', false),
       newsletter('published-sent', 'published', true),
     ])).toBe(2);
+  });
+
+  it('keeps treasurer management access scoped to receipt operations', () => {
+    expect(getDefaultManagementTab('treasurer')).toBe('receipts');
+    expect(isManagementTabAllowedForRole('receipts', 'treasurer')).toBe(true);
+    expect(isManagementTabAllowedForRole('dashboard', 'treasurer')).toBe(false);
+    expect(isManagementTabAllowedForRole('members', 'treasurer')).toBe(false);
+    expect(coerceManagementTabForRole('dashboard', 'treasurer')).toBe('receipts');
+  });
+
+  it('keeps ordinary admins out of receipt-manager tabs', () => {
+    expect(getDefaultManagementTab('admin')).toBe('dashboard');
+    expect(isManagementTabAllowedForRole('dashboard', 'admin')).toBe(true);
+    expect(isManagementTabAllowedForRole('receipts', 'admin')).toBe(false);
+    expect(coerceManagementTabForRole('receipts', 'admin')).toBe('dashboard');
   });
 });

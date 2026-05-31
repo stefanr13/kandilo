@@ -14,7 +14,7 @@ import {
 } from '../shared/security';
 import { sanitizedErrorContext } from '../shared/logging';
 import { renderInvitationEmail } from '../shared/emailTemplates';
-import { assertEmail, assertNonEmptyString } from '../shared/validation';
+import { assertEmail, assertNonEmptyString, callableDataRecord } from '../shared/validation';
 
 const DEFAULT_APP_URL = 'https://app.kandilo.org';
 const DEFAULT_MOBILE_APP_URL = 'kandilo://app/';
@@ -40,7 +40,7 @@ export const joinChurch = onCall({ ...replayProtectedCallableOptions, secrets: [
   assertFreshAppCheck(request);
   assertVerifiedNonAnonymousUser(request, 'A verified, non-anonymous account is required to join a church.');
 
-  const { churchId: rawChurchId } = request.data as { churchId: unknown };
+  const { churchId: rawChurchId } = callableDataRecord(request.data);
   const churchId = assertNonEmptyString(rawChurchId, 128, 'churchId');
   const uid = request.auth!.uid;
 
@@ -54,7 +54,7 @@ export const joinChurch = onCall({ ...replayProtectedCallableOptions, secrets: [
     throw new HttpsError('not-found', 'Church not found.');
   }
   const church = churchDoc.data()!;
-  if (church.isActive === false) {
+  if (church.isActive !== true) {
     throw new HttpsError('failed-precondition', 'This church is not currently accepting memberships.');
   }
 
@@ -112,6 +112,7 @@ export const joinChurch = onCall({ ...replayProtectedCallableOptions, secrets: [
     imageURL: church.imageURL ?? '',
     role: 'member',
     status: 'active',
+    churchActive: true,
     joinedAt: now,
   });
 
@@ -124,7 +125,7 @@ export const acceptInvitation = onCall({ ...replayProtectedCallableOptions, secr
   assertFreshAppCheck(request);
   assertVerifiedNonAnonymousUser(request, 'A verified, non-anonymous account is required to accept invitations.');
 
-  const { invitationId: rawInvitationId } = request.data as { invitationId: unknown };
+  const { invitationId: rawInvitationId } = callableDataRecord(request.data);
   const invitationId = assertNonEmptyString(rawInvitationId, 128, 'invitationId');
 
   const inviteRef = db.collection('invitations').doc(invitationId);
@@ -156,7 +157,7 @@ export const acceptInvitation = onCall({ ...replayProtectedCallableOptions, secr
   const uid = request.auth!.uid;
   const role = invite.role as string | undefined;
 
-  if (!['member', 'admin'].includes(role ?? '')) {
+  if (!['member', 'admin', 'treasurer'].includes(role ?? '')) {
     throw new HttpsError('failed-precondition', 'Invitation role is invalid.');
   }
 
@@ -174,7 +175,7 @@ export const acceptInvitation = onCall({ ...replayProtectedCallableOptions, secr
   if (!church) {
     throw new HttpsError('not-found', 'Church not found.');
   }
-  if (church.isActive === false) {
+  if (church.isActive !== true) {
     throw new HttpsError('failed-precondition', 'This church is not currently accepting memberships.');
   }
 
@@ -189,8 +190,8 @@ export const acceptInvitation = onCall({ ...replayProtectedCallableOptions, secr
     ['admin', 'priest'],
     'This invitation is no longer valid.'
   );
-  if (role === 'admin' && inviterMembership.role !== 'priest') {
-    throw new HttpsError('permission-denied', 'Only priests may invite another admin.');
+  if ((role === 'admin' || role === 'treasurer') && inviterMembership.role !== 'priest') {
+    throw new HttpsError('permission-denied', 'Only priests may invite elevated parish roles.');
   }
 
   const displayName = userRecord.displayName ?? '';
@@ -213,10 +214,11 @@ export const acceptInvitation = onCall({ ...replayProtectedCallableOptions, secr
   batch.set(db.collection('users').doc(uid).collection('churchMemberships').doc(churchId), {
     churchId,
     churchName: church.name ?? '',
-    location: church.location ?? '',
+    location: getChurchLocation(church),
     imageURL: church.imageURL ?? '',
     role,
     status: 'active',
+    churchActive: true,
     joinedAt: now,
   });
 
@@ -232,11 +234,7 @@ export const sendInvitation = onCall({ ...replayProtectedCallableOptions, secret
   assertVerifiedNonAnonymousUser(request, 'A verified, non-anonymous account is required to invite members.');
   await checkRateLimit(request.auth!.uid, 'sendInvitation', 5);
 
-  const { churchId: rawChurchId, inviteeEmail: rawInviteeEmail, role = 'member' } = request.data as {
-    churchId: unknown;
-    inviteeEmail: unknown;
-    role?: unknown;
-  };
+  const { churchId: rawChurchId, inviteeEmail: rawInviteeEmail, role = 'member' } = callableDataRecord(request.data);
 
   const churchId = assertNonEmptyString(rawChurchId, 128, 'churchId');
   const normalizedInviteeEmail = assertEmail(
@@ -244,11 +242,9 @@ export const sendInvitation = onCall({ ...replayProtectedCallableOptions, secret
     'inviteeEmail'
   );
 
-  if (role !== 'member' && role !== 'admin') {
-    throw new HttpsError('invalid-argument', 'role must be member or admin.');
+  if (role !== 'member' && role !== 'admin' && role !== 'treasurer') {
+    throw new HttpsError('invalid-argument', 'role must be member, treasurer, or admin.');
   }
-
-  await checkRateLimit(churchId, 'sendInvitationByChurch', 30, 60 * 60 * 1000);
 
   const callerMembership = await assertActiveChurchRole(
     churchId,
@@ -257,15 +253,17 @@ export const sendInvitation = onCall({ ...replayProtectedCallableOptions, secret
     'Only active admins and priests can invite members.'
   );
   const callerRole = callerMembership.role;
-  if (role === 'admin' && callerRole !== 'priest') {
-    throw new HttpsError('permission-denied', 'Only priests can invite another admin.');
+  if ((role === 'admin' || role === 'treasurer') && callerRole !== 'priest') {
+    throw new HttpsError('permission-denied', 'Only priests can invite elevated parish roles.');
   }
+
+  await checkRateLimit(churchId, 'sendInvitationByChurch', 30, 60 * 60 * 1000);
 
   const churchDoc = await db.collection('churches').doc(churchId).get();
   if (!churchDoc.exists) {
     throw new HttpsError('not-found', 'Church not found.');
   }
-  if (churchDoc.data()?.isActive === false) {
+  if (churchDoc.data()?.isActive !== true) {
     throw new HttpsError('failed-precondition', 'Inactive churches cannot issue invitations.');
   }
   const churchName: string = churchDoc.data()?.name ?? 'your parish';

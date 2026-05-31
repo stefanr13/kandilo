@@ -3,7 +3,7 @@ import { Bell, Loader2, Send } from 'lucide-react';
 import type { Language } from '../../types';
 import { getExtraCopy } from '../../localization/extra';
 
-type NotificationRole = 'member' | 'admin' | 'priest';
+type NotificationRole = 'member' | 'admin' | 'treasurer' | 'priest';
 
 interface ManagementNotificationsTabProps {
   isAdminOrPriest: boolean;
@@ -18,9 +18,10 @@ interface ManagementNotificationsTabProps {
   language: Language;
 }
 
-const ROLE_OPTIONS: Array<{ value: NotificationRole; key: 'members' | 'admins' | 'priests' }> = [
+const ROLE_OPTIONS: Array<{ value: NotificationRole; key: 'members' | 'admins' | 'treasurers' | 'priests' }> = [
   { value: 'member', key: 'members' },
   { value: 'admin', key: 'admins' },
+  { value: 'treasurer', key: 'treasurers' },
   { value: 'priest', key: 'priests' },
 ];
 
@@ -34,7 +35,7 @@ export default function ManagementNotificationsTab({
 }: ManagementNotificationsTabProps) {
   const [title, setTitle] = useState('');
   const [body, setBody] = useState('');
-  const [targetRoles, setTargetRoles] = useState<NotificationRole[]>(['member', 'admin', 'priest']);
+  const [targetRoles, setTargetRoles] = useState<NotificationRole[]>(['member', 'admin', 'treasurer', 'priest']);
   const [validationError, setValidationError] = useState('');
   const copy = getExtraCopy(language).management;
   const t = copy.notifications;

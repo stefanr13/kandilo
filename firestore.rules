@@ -15,7 +15,12 @@ service cloud.firestore {
 
     // Platform-level super admin — verified via JWT custom claim, zero extra reads.
     function isSuperAdmin() {
-      return request.auth != null && request.auth.token.superAdmin == true;
+      return isVerifiedNonAnonymous() && request.auth.token.superAdmin == true;
+    }
+
+    function isActiveChurch(churchId) {
+      return exists(/databases/$(database)/documents/churches/$(churchId))
+        && get(/databases/$(database)/documents/churches/$(churchId)).data.isActive == true;
     }
 
     function getMembership(churchId) {
@@ -24,22 +29,168 @@ service cloud.firestore {
 
     function isMember(churchId) {
       let m = getMembership(churchId);
-      return m != null && m.status == 'active';
+      return isActiveChurch(churchId) && m != null && m.status == 'active';
     }
 
     function isAdmin(churchId) {
       let m = getMembership(churchId);
-      return m != null && m.status == 'active'
+      return isActiveChurch(churchId)
+        && m != null && m.status == 'active'
         && (m.role == 'admin' || m.role == 'priest');
     }
 
     function isPriest(churchId) {
       let m = getMembership(churchId);
-      return m != null && m.status == 'active' && m.role == 'priest';
+      return isActiveChurch(churchId)
+        && m != null && m.status == 'active'
+        && m.role == 'priest';
+    }
+
+    function isReceiptManager(churchId) {
+      let m = getMembership(churchId);
+      return isActiveChurch(churchId)
+        && m != null && m.status == 'active'
+        && (m.role == 'priest' || m.role == 'treasurer');
+    }
+
+    function taxReceiptSummaryOmitsPrivateFields(summary) {
+      return !summary.keys().hasAny([
+        'givingId',
+        'givingIds',
+        'donorEmail',
+        'donorName',
+        'donorAddress',
+        'donorLegalName',
+        'donorMailingAddress',
+        'taxReceiptLegalName',
+        'taxReceiptAddress',
+        'legalName',
+        'mailingAddress',
+        'address',
+        'email',
+        'memberEmail',
+        'receiptEmail',
+        'organizationName',
+        'organizationAddress',
+        'organizationTaxId',
+        'purpose',
+        'contributions',
+        'coveredPeriodLabel',
+        'duplicateClaimWarning',
+        'issuedBy',
+        'emailSendingAt',
+        'emailSendAttemptId',
+        'stripeSessionId',
+        'stripeCheckoutSessionId',
+        'stripeCheckoutSessionExpiresAt',
+        'stripeCheckoutUrl',
+        'stripeCheckoutSessionUrl',
+        'stripePaymentIntentId',
+        'stripePaymentStatus',
+        'stripePaymentMethodId',
+        'stripeChargeId',
+        'stripeCustomerId',
+        'stripeEventId',
+        'stripeConnectAccountId',
+        'stripeConnectTransferId',
+        'stripeTransferId',
+        'stripeDestinationAccountId',
+        'stripeRefundId',
+        'stripeRefundStatus',
+        'stripeRefundedChargeId',
+        'stripeAmountRefundedCents',
+        'stripeRefundedAt',
+        'checkoutSessionId',
+        'checkoutSessionExpiresAt',
+        'checkoutSessionUrl',
+        'checkoutUrl',
+        'paymentIntentId',
+        'paymentStatus',
+        'paymentMethodId',
+        'chargeId',
+        'customerId',
+        'eventId',
+        'refundId',
+        'refundStatus',
+        'amountRefundedCents',
+        'receivedAt',
+        'receivedDateLabel',
+        'goodsServicesStatement',
+        'pdfTemplateVersion',
+        'pdfStoragePath',
+        'pdfSha256',
+        'pdfByteLength',
+        'pdfRetainedAt',
+        'pdfRetentionStatus',
+        'receiptIssueLocation',
+        'authorizedSignerName',
+        'authorizedSignerTitle',
+        'secureElectronicSignatureConfigured',
+        'receiptCopiesRetentionConfirmed',
+        'partialRefundGivingIds',
+        'originalAmountCents',
+        'refundedAmountCents',
+        'correctionForGivingId',
+        'correctionForReceiptId',
+        'correctionSourceReason',
+        'correctedAt',
+        'correctedBy',
+        'correctionMarkedAt',
+        'correctionMarkedBy',
+        'voidedBy'
+      ]);
+    }
+
+    function taxReceiptSummaryPublicLabelSafe(summary) {
+      return summary.donorLabelPublicSafe == true
+        && (!summary.keys().hasAny(['donorLabel'])
+        || (summary.donorLabel is string
+          && summary.donorLabel != 'Anonymous donor'
+          && !summary.donorLabel.matches('.*[^\\s@]+@[^\\s@]+\\.[^\\s@]{2,}.*')));
+    }
+
+    function givingPublicDonorNameSafe(giving) {
+      return !giving.keys().hasAny(['donorName'])
+        || (giving.donorName is string
+          && giving.donorName != 'Anonymous donor'
+          && !giving.donorName.matches('.*[^\\s@]+@[^\\s@]+\\.[^\\s@]{2,}.*'));
+    }
+
+    function givingOmitsPrivatePaymentFields(giving) {
+      return !giving.keys().hasAny([
+        'stripeSessionId',
+        'stripeCheckoutSessionId',
+        'stripeCheckoutSessionExpiresAt',
+        'stripeCheckoutUrl',
+        'stripeCheckoutSessionUrl',
+        'stripePaymentIntentId',
+        'stripePaymentStatus',
+        'stripePaymentMethodId',
+        'stripeChargeId',
+        'stripeCustomerId',
+        'stripeEventId',
+        'stripeConnectAccountId',
+        'stripeConnectTransferId',
+        'stripeTransferId',
+        'stripeDestinationAccountId',
+        'stripeRefundId',
+        'stripeRefundedChargeId',
+        'checkoutSessionId',
+        'checkoutSessionExpiresAt',
+        'checkoutSessionUrl',
+        'checkoutUrl',
+        'paymentIntentId',
+        'paymentStatus',
+        'paymentMethodId',
+        'chargeId',
+        'customerId',
+        'eventId',
+        'refundId'
+      ]);
     }
 
     function isAssignableClientRole(role) {
-      return role == 'member' || role == 'admin';
+      return role == 'member' || role == 'admin' || role == 'treasurer';
     }
 
     function isValidMembershipStatus(status) {
@@ -82,6 +233,34 @@ service cloud.firestore {
       return tokens == null || validFcmTokens(tokens);
     }
 
+    function validOptionalTaxReceiptAddress(address) {
+      return address == null
+        || (
+          address is map
+          && address.keys().hasOnly([
+            'line1',
+            'line2',
+            'city',
+            'region',
+            'postalCode',
+            'country',
+          ])
+          && validOptionalString(address.line1, 160)
+          && validOptionalString(address.line2, 160)
+          && validOptionalString(address.city, 100)
+          && validOptionalString(address.region, 100)
+          && validOptionalString(address.postalCode, 30)
+          && validOptionalString(address.country, 80)
+        );
+    }
+
+    function validTaxReceiptProfileFields(data) {
+      return (!data.keys().hasAny(['taxReceiptLegalName'])
+          || validOptionalString(data.taxReceiptLegalName, 160))
+        && (!data.keys().hasAny(['taxReceiptAddress'])
+          || validOptionalTaxReceiptAddress(data.taxReceiptAddress));
+    }
+
     function validUserProfileBase() {
       return request.resource.data.email == request.auth.token.email
         && validString(request.resource.data.displayName, 120)
@@ -92,6 +271,7 @@ service cloud.firestore {
         && request.resource.data.ministries.size() <= 20
         && validString(request.resource.data.description, 1000)
         && request.resource.data.showInDirectory is bool
+        && validTaxReceiptProfileFields(request.resource.data)
         && validFcmTokens(request.resource.data.fcmTokens);
     }
 
@@ -105,6 +285,8 @@ service cloud.firestore {
           'ministries',
           'description',
           'showInDirectory',
+          'taxReceiptLegalName',
+          'taxReceiptAddress',
           'fcmTokens',
           'createdAt',
         ])
@@ -123,6 +305,7 @@ service cloud.firestore {
           || (request.resource.data.ministries is list && request.resource.data.ministries.size() <= 20))
         && validOptionalString(request.resource.data.description, 1000)
         && validOptionalBool(request.resource.data.showInDirectory)
+        && validTaxReceiptProfileFields(request.resource.data)
         && validOptionalFcmTokens(request.resource.data.fcmTokens)
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
           'displayName',
@@ -132,6 +315,8 @@ service cloud.firestore {
           'ministries',
           'description',
           'showInDirectory',
+          'taxReceiptLegalName',
+          'taxReceiptAddress',
           'fcmTokens',
         ]);
     }
@@ -415,7 +600,7 @@ service cloud.firestore {
     // ─── Users ────────────────────────────────────────────────────────────────
 
     match /users/{userId} {
-      allow read: if (isVerifiedNonAnonymous() && isOwner(userId)) || isSuperAdmin();
+      allow read: if isVerifiedNonAnonymous() && isOwner(userId);
       allow create: if isVerifiedNonAnonymous() && isOwner(userId) && validUserProfileCreate();
       allow update: if isVerifiedNonAnonymous() && isOwner(userId) && validUserProfileUpdate();
       allow delete: if false;
@@ -435,12 +620,11 @@ service cloud.firestore {
 
     match /churches/{churchId} {
       allow read: if isSuperAdmin() || (isVerifiedNonAnonymous() && resource.data.isActive == true);
-      allow create: if isSuperAdmin();
+      allow create: if false;
 
       // Client-side church edits are limited to low-risk feature toggles.
       // Broader metadata/state changes must go through audited backend code.
-      allow update: if isSuperAdmin()
-        || (isVerifiedNonAnonymous() && isAdmin(churchId) && adminMayEditChurchSettings());
+      allow update: if isVerifiedNonAnonymous() && isAdmin(churchId) && adminMayEditChurchSettings();
 
       allow delete: if false;
 
@@ -539,10 +723,85 @@ service cloud.firestore {
     // ─── Giving ───────────────────────────────────────────────────────────────
 
     match /giving/{givingId} {
-      allow read: if isSuperAdmin() || (isVerifiedNonAnonymous() && (
-        isOwner(resource.data.userId) || isPriest(resource.data.churchId)
-      ));
+      allow read: if isVerifiedNonAnonymous() && (
+        isOwner(resource.data.get('userId', ''))
+        || (
+          isReceiptManager(resource.data.churchId)
+          && resource.data.anonymous == false
+          && resource.data.churchReceiptVisible == true
+          && resource.data.donorEmail == ''
+          && resource.data.donorNamePublicSafe == true
+          && resource.data.receiptManagerGivingSafeVersion == 1
+          && givingPublicDonorNameSafe(resource.data)
+          && givingOmitsPrivatePaymentFields(resource.data)
+          && resource.data.status in ['completed', 'refunded']
+        )
+      );
       // All writes are performed exclusively by Cloud Functions (Admin SDK, bypasses rules).
+      allow create, update, delete: if false;
+    }
+
+    // ─── Stripe Webhook Audit Events ─────────────────────────────────────────
+
+    match /stripeWebhookEvents/{stripeWebhookEventId} {
+      // Raw Stripe event records contain Stripe object IDs and giving IDs.
+      // Mission Control reads only redacted summaries via getPaymentOperationsReadiness.
+      allow read: if false;
+      allow create, update, delete: if false;
+    }
+
+    // ─── Giving Payment Metadata ────────────────────────────────────────────
+
+    match /givingPaymentMetadata/{givingId} {
+      // Raw Stripe session, PaymentIntent, and charge identifiers stay backend-only.
+      allow read: if false;
+      allow create, update, delete: if false;
+    }
+
+    // ─── Church Payment Settings ─────────────────────────────────────────────
+
+    match /churchPaymentSettings/{churchId} {
+      // Connected account IDs and routing switches are backend-only. Mission
+      // Control uses SuperAdmin callables instead of direct Firestore reads.
+      allow read: if false;
+      allow create, update, delete: if false;
+    }
+
+    // ─── Tax Receipts ────────────────────────────────────────────────────────
+
+    match /taxReceipts/{taxReceiptId} {
+      allow read: if isVerifiedNonAnonymous() && isOwner(resource.data.userId);
+      // Official receipt issuance, voiding, and email state are backend-only.
+      allow create, update, delete: if false;
+    }
+
+    // ─── Tax Receipt Operational Summaries ─────────────────────────────────────
+
+    match /taxReceiptSummaries/{taxReceiptSummaryId} {
+      allow read: if isVerifiedNonAnonymous() && (
+        isOwner(resource.data.userId)
+        || (
+          isReceiptManager(resource.data.churchId)
+          && resource.data.kind == 'annual'
+          && resource.data.donorAnonymous == false
+          && resource.data.churchReceiptVisible == true
+          && resource.data.receiptManagerSummarySafe == true
+          && resource.data.receiptManagerSummarySafeVersion == 2
+          && resource.data.donorLabelPublicSafe == true
+          && taxReceiptSummaryPublicLabelSafe(resource.data)
+          && taxReceiptSummaryOmitsPrivateFields(resource.data)
+        )
+      );
+      // Minimal operational mirrors are written only by Cloud Functions.
+      allow create, update, delete: if false;
+    }
+
+    // ─── Tax Receipt Audit Events ─────────────────────────────────────────────
+
+    match /taxReceiptEvents/{taxReceiptEventId} {
+      // Internal operational audit records. Mission Control reads only the
+      // whitelisted redacted feed exposed by getTaxReceiptAuditEvents.
+      allow read: if false;
       allow create, update, delete: if false;
     }
 

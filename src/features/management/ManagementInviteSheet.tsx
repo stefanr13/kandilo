@@ -6,7 +6,7 @@ import { getExtraCopy } from '../../localization/extra';
 
 interface InviteValues {
   inviteeEmail: string;
-  role: 'member' | 'admin';
+  role: 'member' | 'admin' | 'treasurer';
 }
 
 interface ManagementInviteSheetProps {
@@ -116,8 +116,14 @@ export default function ManagementInviteSheet({
                   className="w-full bg-gray-50 rounded-2xl px-5 py-4 text-sm font-bold text-gray-900 border-none focus:ring-2 focus:ring-[#800000]/20 appearance-none"
                 >
                   <option value="member">{t.member}</option>
+                  {allowAdminInvites && <option value="treasurer">{t.treasurer}</option>}
                   {allowAdminInvites && <option value="admin">{t.admin}</option>}
                 </select>
+                {allowAdminInvites && (
+                  <span className="ml-1 block text-xs font-bold leading-relaxed text-gray-400">
+                    {t.receiptAccessHint}
+                  </span>
+                )}
               </label>
             </div>
 

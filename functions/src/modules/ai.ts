@@ -7,6 +7,7 @@ import {
   checkRateLimit,
 } from '../shared/security';
 import { sanitizedErrorContext } from '../shared/logging';
+import { assertNonEmptyString, callableDataRecord } from '../shared/validation';
 
 const POST_TRANSLATION_PREVIEW_LANGUAGES = [
   'English',
@@ -115,10 +116,8 @@ export const faithAiChat = onCall({ ...appCheckCallableOptions, secrets: ['GEMIN
   assertVerifiedNonAnonymousUser(request, 'Faith AI is available only to verified, non-anonymous accounts.');
   await checkRateLimit(request.auth!.uid, 'faithAiChat', 20);
 
-  const { message, history = [] } = request.data as {
-    message: string;
-    history?: { role: 'user' | 'model'; text: string }[];
-  };
+  const data = callableDataRecord(request.data);
+  const { message, history = [] } = data;
 
   if (!message || typeof message !== 'string' || message.trim().length === 0) {
     throw new HttpsError('invalid-argument', 'message is required.');
@@ -133,13 +132,19 @@ export const faithAiChat = onCall({ ...appCheckCallableOptions, secrets: ['GEMIN
   if (history.length > 40) {
     throw new HttpsError('invalid-argument', 'history must contain at most 40 messages.');
   }
+  const safeHistory: { role: 'user' | 'model'; text: string }[] = [];
   for (const entry of history) {
-    if (entry.role !== 'user' && entry.role !== 'model') {
+    if (typeof entry !== 'object' || entry === null || Array.isArray(entry)) {
+      throw new HttpsError('invalid-argument', 'history entries must be objects.');
+    }
+    const { role, text } = entry as Record<string, unknown>;
+    if (role !== 'user' && role !== 'model') {
       throw new HttpsError('invalid-argument', "history entries must have role 'user' or 'model'.");
     }
-    if (typeof entry.text !== 'string' || entry.text.length > 4000) {
+    if (typeof text !== 'string' || text.length > 4000) {
       throw new HttpsError('invalid-argument', 'Each history entry text must be a string ≤ 4000 characters.');
     }
+    safeHistory.push({ role, text });
   }
 
   const ai = getGemini();
@@ -150,7 +155,7 @@ tradition. Keep responses clear and appropriate for all ages. If asked about som
 Christianity, gently redirect to how the faith might address the topic.`;
 
   const contents = [
-    ...history.map((h) => ({
+    ...safeHistory.map((h) => ({
       role: h.role,
       parts: [{ text: h.text }],
     })),
@@ -175,17 +180,10 @@ export const previewPostTranslations = onCall({ ...appCheckCallableOptions, secr
   assertVerifiedNonAnonymousUser(request, 'A verified, non-anonymous account is required to preview translations.');
   await checkRateLimit(request.auth!.uid, 'previewPostTranslations', 10);
 
-  const { churchId, prompt } = request.data as {
-    churchId: string;
-    prompt: string;
-  };
-
-  if (!churchId || !prompt) {
-    throw new HttpsError('invalid-argument', 'churchId and prompt are required.');
-  }
-  if (prompt.length > 1000) {
-    throw new HttpsError('invalid-argument', 'prompt must be ≤ 1000 characters.');
-  }
+  const data = callableDataRecord(request.data);
+  const { churchId: rawChurchId, prompt: rawPrompt } = data;
+  const churchId = assertNonEmptyString(rawChurchId, 128, 'churchId');
+  const prompt = assertNonEmptyString(rawPrompt, 1000, 'prompt');
 
   await assertActiveChurchRole(
     churchId,
@@ -206,21 +204,15 @@ export const generatePostContent = onCall({ ...appCheckCallableOptions, secrets:
   assertVerifiedNonAnonymousUser(request, 'A verified, non-anonymous account is required to generate content.');
   await checkRateLimit(request.auth!.uid, 'generatePostContent', 10);
 
-  const { churchId, prompt, tone = 'warm' } = request.data as {
-    churchId: string;
-    prompt: string;
-    tone?: GeminiTone;
-  };
+  const data = callableDataRecord(request.data);
+  const { churchId: rawChurchId, prompt: rawPrompt, tone = 'warm' } = data;
+  const churchId = assertNonEmptyString(rawChurchId, 128, 'churchId');
+  const prompt = assertNonEmptyString(rawPrompt, 1000, 'prompt');
 
-  if (!churchId || !prompt) {
-    throw new HttpsError('invalid-argument', 'churchId and prompt are required.');
-  }
-  if (prompt.length > 1000) {
-    throw new HttpsError('invalid-argument', 'prompt must be ≤ 1000 characters.');
-  }
-  if (!ALLOWED_TONES.includes(tone)) {
+  if (tone !== 'formal' && tone !== 'warm' && tone !== 'brief') {
     throw new HttpsError('invalid-argument', `tone must be one of: ${ALLOWED_TONES.join(', ')}.`);
   }
+  const safeTone: GeminiTone = tone;
 
   await assertActiveChurchRole(
     churchId,
@@ -237,7 +229,7 @@ export const generatePostContent = onCall({ ...appCheckCallableOptions, secrets:
 
   const systemPrompt = `You are a writer for an Orthodox Christian parish. Write a parish post or announcement 
 in Markdown format. Use ## for section headings, **bold** for emphasis, and - for bullet points where appropriate.
-${toneInstructions[tone]}
+${toneInstructions[safeTone]}
 Keep the content faithful to Orthodox Christian theology and tradition. Do not include placeholder text like [Church Name].`;
 
   const ai = getGemini();

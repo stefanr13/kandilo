@@ -6,6 +6,8 @@ import {
   getCurrentAppLocationSnapshot,
   getGivingCheckoutState,
   getInitialScreen,
+  getInitialManagementTab,
+  getStripeConnectReturnState,
   parseExternalAppUrl,
   parsePendingInvitationPath,
   selectEventForScreen,
@@ -28,6 +30,7 @@ const EVENT: Event = {
   price: 0,
   color: '#800000',
 };
+const STRIPE_CONNECT_STATE = 'A'.repeat(32);
 
 describe('app navigation', () => {
   it('opens the giving screen when returning from checkout', () => {
@@ -36,6 +39,27 @@ describe('app navigation', () => {
     expect(getGivingCheckoutState('?giving=failed')).toBeNull();
     expect(getGivingCheckoutState('?churchId=church-1')).toBeNull();
     expect(createInitialAppNavigationState().currentScreen).toBe('home');
+  });
+
+  it('opens receipt management when returning from Stripe Connect onboarding', () => {
+    expect(getStripeConnectReturnState(`?stripeConnect=return&churchId=church-1&state=${STRIPE_CONNECT_STATE}`)).toEqual({
+      status: 'return',
+      churchId: 'church-1',
+      returnState: STRIPE_CONNECT_STATE,
+    });
+    expect(getStripeConnectReturnState(`?stripeConnect=refresh&churchId=church-1&state=${STRIPE_CONNECT_STATE}`)).toEqual({
+      status: 'refresh',
+      churchId: 'church-1',
+      returnState: STRIPE_CONNECT_STATE,
+    });
+    expect(getInitialScreen(`?stripeConnect=return&churchId=church-1&state=${STRIPE_CONNECT_STATE}`)).toBe('management');
+    expect(getInitialManagementTab(`?stripeConnect=return&churchId=church-1&state=${STRIPE_CONNECT_STATE}`)).toBe('receipts');
+    expect(getInitialManagementTab(`?stripeConnect=refresh&churchId=church-1&state=${STRIPE_CONNECT_STATE}`)).toBe('receipts');
+    expect(getStripeConnectReturnState('?stripeConnect=return')).toBeNull();
+    expect(getStripeConnectReturnState('?stripeConnect=return&churchId=church-1')).toBeNull();
+    expect(getStripeConnectReturnState(`?stripeConnect=failed&churchId=church-1&state=${STRIPE_CONNECT_STATE}`)).toBeNull();
+    expect(getStripeConnectReturnState(`?stripeConnect=return&churchId=bad/church&state=${STRIPE_CONNECT_STATE}`)).toBeNull();
+    expect(getStripeConnectReturnState('?stripeConnect=return&churchId=church-1&state=bad/state')).toBeNull();
   });
 
   it('parses invitation paths only when they match the expected route', () => {
@@ -68,6 +92,10 @@ describe('app navigation', () => {
     expect(parseExternalAppUrl('kandilo://app/?giving=success')).toEqual({
       pathname: '/',
       search: '?giving=success',
+    });
+    expect(parseExternalAppUrl(`kandilo://app/?stripeConnect=refresh&churchId=church-1&state=${STRIPE_CONNECT_STATE}`)).toEqual({
+      pathname: '/',
+      search: `?stripeConnect=refresh&churchId=church-1&state=${STRIPE_CONNECT_STATE}`,
     });
     expect(parseExternalAppUrl('https://app.kandilo.org/join/invite-123')).toEqual({
       pathname: '/join/invite-123',

@@ -33,10 +33,26 @@ export interface AppLocationSnapshot {
   search: string;
 }
 
+export type StripeConnectReturnStatus = 'return' | 'refresh';
+
+export interface StripeConnectReturnState {
+  status: StripeConnectReturnStatus;
+  churchId: string;
+  returnState: string;
+}
+
 export const DEFAULT_SCREEN: Screen = 'home';
 
 export function getInitialScreen(search = typeof window === 'undefined' ? '' : window.location.search): Screen {
-  return getGivingCheckoutState(search) ? 'giving' : DEFAULT_SCREEN;
+  if (getGivingCheckoutState(search)) {
+    return 'giving';
+  }
+
+  if (getStripeConnectReturnState(search)) {
+    return 'management';
+  }
+
+  return DEFAULT_SCREEN;
 }
 
 export function createInitialAppNavigationState(): AppNavigationState {
@@ -81,6 +97,44 @@ export function getGivingCheckoutState(search: string): 'success' | 'cancel' | n
 
   const checkoutState = new URLSearchParams(search).get('giving');
   return checkoutState === 'success' || checkoutState === 'cancel' ? checkoutState : null;
+}
+
+function normalizeReturnChurchId(churchId: string | null): string | null {
+  const normalized = churchId?.trim() ?? '';
+  if (!normalized || normalized.length > 128 || normalized.includes('/')) {
+    return null;
+  }
+
+  return normalized;
+}
+
+function normalizeStripeConnectReturnState(returnState: string | null): string | null {
+  const normalized = returnState?.trim() ?? '';
+  if (!/^[A-Za-z0-9_-]{32}$/.test(normalized)) {
+    return null;
+  }
+
+  return normalized;
+}
+
+export function getStripeConnectReturnState(search: string): StripeConnectReturnState | null {
+  if (!search) {
+    return null;
+  }
+
+  const params = new URLSearchParams(search);
+  const status = params.get('stripeConnect');
+  if (status !== 'return' && status !== 'refresh') {
+    return null;
+  }
+
+  const churchId = normalizeReturnChurchId(params.get('churchId'));
+  const returnState = normalizeStripeConnectReturnState(params.get('state'));
+  return churchId && returnState ? { status, churchId, returnState } : null;
+}
+
+export function getInitialManagementTab(search: string): 'receipts' | null {
+  return getStripeConnectReturnState(search) ? 'receipts' : null;
 }
 
 export function replaceWithRootPath(history: Pick<History, 'replaceState'> = window.history): void {

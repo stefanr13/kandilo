@@ -6,6 +6,10 @@ import { ChurchMembershipRecord, ChurchRole } from './types';
 
 const RATE_LIMITS_COLLECTION = 'functionRateLimits';
 
+function rateLimitDocId(fnName: string, subjectId: string): string {
+  return `${encodeURIComponent(fnName)}:${encodeURIComponent(subjectId)}`;
+}
+
 function hydrateFunctionsEmulatorTestAuth(request: CallableRequest<unknown>): void {
   if (request.auth || !isFunctionsEmulatorTestMode()) {
     return;
@@ -99,7 +103,7 @@ export async function checkRateLimit(
 ): Promise<void> {
   const nowMs = Date.now();
   const resetAt = Timestamp.fromMillis(nowMs + windowMs);
-  const rateLimitRef = db.collection(RATE_LIMITS_COLLECTION).doc(`${fnName}:${subjectId}`);
+  const rateLimitRef = db.collection(RATE_LIMITS_COLLECTION).doc(rateLimitDocId(fnName, subjectId));
 
   await db.runTransaction(async (tx) => {
     const snap = await tx.get(rateLimitRef);
@@ -192,6 +196,14 @@ export async function assertActiveChurchRole(
     throw new HttpsError('permission-denied', errorMessage);
   }
 
+  const churchSnap = await db.collection('churches').doc(churchId).get();
+  if (!churchSnap.exists) {
+    throw new HttpsError('not-found', 'Church not found.');
+  }
+  if (churchSnap.data()?.isActive !== true) {
+    throw new HttpsError('failed-precondition', 'This church is not currently active.');
+  }
+
   return membership;
 }
 
@@ -202,14 +214,14 @@ export async function assertActiveChurch(churchId: string): Promise<FirebaseFire
   }
 
   const church = churchSnap.data() ?? {};
-  if (church.isActive === false) {
+  if (church.isActive !== true) {
     throw new HttpsError('failed-precondition', 'This church is not currently active.');
   }
 
   return church;
 }
 
-export async function getPrimaryEmailsForUids(uids: string[]): Promise<string[]> {
+async function getPrimaryEmailsForUidsInternal(uids: string[], requireVerified: boolean): Promise<string[]> {
   const uniqueUids = [...new Set(uids.filter(Boolean))];
   const emails = new Set<string>();
 
@@ -217,13 +229,21 @@ export async function getPrimaryEmailsForUids(uids: string[]): Promise<string[]>
     const chunk = uniqueUids.slice(i, i + 100);
     const result = await auth.getUsers(chunk.map((uid) => ({ uid })));
     for (const user of result.users) {
-      if (user.email) {
+      if (user.email && (!requireVerified || user.emailVerified === true)) {
         emails.add(normalizeEmail(user.email));
       }
     }
   }
 
   return [...emails];
+}
+
+export async function getPrimaryEmailsForUids(uids: string[]): Promise<string[]> {
+  return getPrimaryEmailsForUidsInternal(uids, false);
+}
+
+export async function getPrimaryVerifiedEmailsForUids(uids: string[]): Promise<string[]> {
+  return getPrimaryEmailsForUidsInternal(uids, true);
 }
 
 export function assertSuperAdmin(request: CallableRequest<unknown>): void {

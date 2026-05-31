@@ -1,7 +1,15 @@
-import { Suspense, lazy, useEffect, useState } from 'react';
+import { Suspense, lazy, useCallback, useEffect, useRef, useState } from 'react';
 import { AnimatePresence } from 'motion/react';
 import type { User } from 'firebase/auth';
-import { useAppNavigation } from '../../app/navigation';
+import {
+  APP_URL_OPENED_EVENT,
+  getCurrentAppLocationSnapshot,
+  getStripeConnectReturnState,
+  replaceWithRootPath,
+  useAppNavigation,
+  type AppLocationSnapshot,
+  type StripeConnectReturnState,
+} from '../../app/navigation';
 import { useActiveChurchSelection } from '../../hooks/useActiveChurchSelection';
 import { useChurches } from '../../hooks/useChurches';
 import { useChurchNewsletters } from '../../hooks/useChurchNewsletters';
@@ -9,12 +17,38 @@ import { useEvents } from '../../hooks/useEvents';
 import { usePublishedChurchPosts } from '../../hooks/usePublishedChurchPosts';
 import { FAITH_AI_ENABLED } from '../../config/features';
 import { subscribeToChurch } from '../../lib/db/churches';
+import {
+  parsePendingStripeConnectOnboardingState,
+  PENDING_STRIPE_CONNECT_STORAGE_KEY,
+  stripeConnectReturnMatchesPendingOnboarding,
+} from '../../lib/stripe/connect';
 import type { Language } from '../../types';
 import AppLoadingScreen from './AppLoadingScreen';
 import AppScreenContent from './AppScreenContent';
 import AppShell from './AppShell';
 
 const MissionControlScreen = lazy(() => import('../MissionControlScreen'));
+
+interface StripeConnectReturnSignal extends StripeConnectReturnState {
+  sequence: number;
+}
+
+function createStripeConnectReturnSignal(
+  search: string,
+  sequence: number
+): StripeConnectReturnSignal | null {
+  const state = getStripeConnectReturnState(search);
+  if (!state || typeof window === 'undefined') {
+    return null;
+  }
+
+  const pending = parsePendingStripeConnectOnboardingState(
+    window.sessionStorage.getItem(PENDING_STRIPE_CONNECT_STORAGE_KEY)
+  );
+  return stripeConnectReturnMatchesPendingOnboarding(pending, state.churchId, state.returnState)
+    ? { ...state, sequence }
+    : null;
+}
 
 interface AuthenticatedAppProps {
   user: User;
@@ -40,6 +74,16 @@ export default function AuthenticatedApp({
   } = useAppNavigation();
   const { activeChurch, activeChurchId, setActiveChurch } = useActiveChurchSelection(churches);
   const userRole = activeChurchId ? getRoleInChurch(activeChurchId) : null;
+  const [stripeConnectReturnSignal, setStripeConnectReturnSignal] =
+    useState<StripeConnectReturnSignal | null>(() => {
+      if (typeof window === 'undefined') {
+        return null;
+      }
+
+      return createStripeConnectReturnSignal(window.location.search, 0);
+    });
+  const routedStripeConnectReturnSequence = useRef<number | null>(null);
+  const initialManagementTab = stripeConnectReturnSignal ? 'receipts' : null;
   const needsEvents = currentScreen === 'home' || currentScreen === 'events' || currentScreen === 'calendar';
   const needsHomeContent = currentScreen === 'home';
   const needsChurchSettings = currentScreen === 'home' || currentScreen === 'calendar';
@@ -69,6 +113,78 @@ export default function AuthenticatedApp({
   }, [user]);
 
   useEffect(() => {
+    if (typeof window === 'undefined') {
+      return undefined;
+    }
+
+    const syncStripeConnectReturn = (snapshot: AppLocationSnapshot) => {
+      setStripeConnectReturnSignal((current) => (
+        createStripeConnectReturnSignal(snapshot.search, (current?.sequence ?? 0) + 1)
+      ));
+    };
+
+    const handlePopState = () => {
+      syncStripeConnectReturn(getCurrentAppLocationSnapshot(window.location));
+    };
+
+    const handleNativeUrl = (event: Event) => {
+      syncStripeConnectReturn((event as CustomEvent<AppLocationSnapshot>).detail);
+    };
+
+    window.addEventListener('popstate', handlePopState);
+    window.addEventListener(APP_URL_OPENED_EVENT, handleNativeUrl as EventListener);
+
+    return () => {
+      window.removeEventListener('popstate', handlePopState);
+      window.removeEventListener(APP_URL_OPENED_EVENT, handleNativeUrl as EventListener);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || stripeConnectReturnSignal) {
+      return;
+    }
+
+    if (getStripeConnectReturnState(window.location.search)) {
+      replaceWithRootPath(window.history);
+      setCurrentScreen('home');
+    }
+  }, [setCurrentScreen, stripeConnectReturnSignal]);
+
+  useEffect(() => {
+    if (!stripeConnectReturnSignal) {
+      return;
+    }
+
+    if (routedStripeConnectReturnSequence.current === stripeConnectReturnSignal.sequence) {
+      return;
+    }
+
+    if (churchesLoading && churches.length === 0) {
+      return;
+    }
+
+    const returnedChurch = churches.find((church) => church.id === stripeConnectReturnSignal.churchId);
+    if (returnedChurch && activeChurchId !== returnedChurch.id) {
+      setActiveChurch(returnedChurch);
+    }
+
+    routedStripeConnectReturnSequence.current = stripeConnectReturnSignal.sequence;
+    setCurrentScreen('management');
+
+    if (typeof window !== 'undefined') {
+      replaceWithRootPath(window.history);
+    }
+  }, [
+    activeChurchId,
+    churches,
+    churchesLoading,
+    setActiveChurch,
+    setCurrentScreen,
+    stripeConnectReturnSignal,
+  ]);
+
+  useEffect(() => {
     if (currentScreen === 'superadmin' && !isSuperAdmin) {
       setCurrentScreen('profile');
     }
@@ -79,6 +195,16 @@ export default function AuthenticatedApp({
       setCurrentScreen('home');
     }
   }, [currentScreen, setCurrentScreen]);
+
+  const handleStripeConnectReturnConsumed = useCallback(() => {
+    setStripeConnectReturnSignal(null);
+  }, []);
+
+  const waitingForStripeConnectChurch = Boolean(
+    stripeConnectReturnSignal
+    && churches.some((church) => church.id === stripeConnectReturnSignal.churchId)
+    && activeChurchId !== stripeConnectReturnSignal.churchId
+  );
 
   if (currentScreen === 'superadmin') {
     if (!isSuperAdmin) {
@@ -101,7 +227,7 @@ export default function AuthenticatedApp({
       activeChurch={activeChurch}
       onChurchChange={setActiveChurch}
     >
-      {churchesLoading && churches.length === 0 ? (
+      {(churchesLoading && churches.length === 0) || waitingForStripeConnectChurch ? (
         <AppLoadingScreen variant="panel" />
       ) : (
         <AnimatePresence mode="wait">
@@ -119,11 +245,15 @@ export default function AuthenticatedApp({
             newsletters={newsletters}
             showSaintDays={showSaintDays}
             selectedCalendarEvent={selectedCalendarEvent}
+            initialManagementTab={initialManagementTab}
+            stripeConnectReturnStatus={stripeConnectReturnSignal?.status ?? null}
+            stripeConnectReturnSequence={stripeConnectReturnSignal?.sequence ?? null}
             onScreenChange={setCurrentScreen}
             onSelectEvent={handleSelectEvent}
             onCloseEventDetail={handleCloseEventDetail}
             onClearSelectedEvent={clearSelectedEvent}
             onLanguageChange={onLanguageChange}
+            onStripeConnectReturnConsumed={handleStripeConnectReturnConsumed}
           />
         </AnimatePresence>
       )}

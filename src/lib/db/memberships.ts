@@ -16,23 +16,37 @@ const PUBLIC_DIRECTORY_LIMIT = 500;
 
 export function subscribeToUserMemberships(
   uid: string,
-  callback: (memberships: ChurchMembership[]) => void
+  callback: (memberships: ChurchMembership[]) => void,
+  onError?: (error: unknown) => void
 ): () => void {
   const ref = collection(db, 'users', uid, 'churchMemberships');
-  return onSnapshot(ref, (snap) => {
-    const memberships: ChurchMembership[] = snap.docs
-      .filter((d) => (d.data().status as MembershipStatus) === 'active')
-      .map((d) => ({
-        churchId: d.id,
-        churchName: d.data().churchName ?? '',
-        imageURL: d.data().imageURL ?? '',
-        location: d.data().location ?? '',
-        role: d.data().role as Role,
-        status: d.data().status as MembershipStatus,
-        joinedAt: d.data().joinedAt,
-      }));
-    callback(memberships);
-  });
+  return onSnapshot(
+    ref,
+    (snap) => {
+      const memberships: ChurchMembership[] = snap.docs
+        .filter((d) => {
+          const data = d.data();
+          return (data.status as MembershipStatus) === 'active' && data.churchActive !== false;
+        })
+        .map((d) => {
+          const data = d.data();
+          return {
+            churchId: d.id,
+            churchName: data.churchName ?? '',
+            imageURL: data.imageURL ?? '',
+            location: data.location ?? '',
+            role: data.role as Role,
+            status: data.status as MembershipStatus,
+            churchActive: data.churchActive !== false,
+            joinedAt: data.joinedAt,
+          };
+        });
+      callback(memberships);
+    },
+    (error) => {
+      onError?.(error);
+    }
+  );
 }
 
 export async function getUserRoleInChurch(uid: string, churchId: string): Promise<Role | null> {

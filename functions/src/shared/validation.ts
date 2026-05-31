@@ -1,5 +1,11 @@
 import { HttpsError } from 'firebase-functions/v2/https';
 
+export function callableDataRecord(data: unknown): Record<string, unknown> {
+  return typeof data === 'object' && data !== null && !Array.isArray(data)
+    ? data as Record<string, unknown>
+    : {};
+}
+
 export function assertMaxLength(value: unknown, max: number, field: string): void {
   if (typeof value === 'string' && value.length > max) {
     throw new HttpsError('invalid-argument', `${field} must be at most ${max} characters.`);

@@ -40,6 +40,10 @@ const MUTED = '#6B7280';
 const SOFT_BG = '#F7F4EF';
 const PANEL_BG = '#FFFFFF';
 const BORDER = '#ECE7DF';
+const CRA_NAME = 'Canada Revenue Agency';
+const CRA_WEBSITE = 'canada.ca/charities-giving';
+const CANADA_CRA_STAGING_DRAFT_NOTICE =
+  'CRA receipt staging draft - not valid for income tax purposes until Kandilo supports read-only, encrypted, electronically signed receipts.';
 
 function cleanText(value: string, fallback = ''): string {
   const normalized = value.replace(/\s+/g, ' ').trim();
@@ -207,13 +211,16 @@ function renderLayout(input: EmailLayoutInput): RenderedEmail {
   };
 }
 
-function roleLabel(role: 'member' | 'admin'): string {
-  return role === 'admin' ? 'parish admin' : 'parish member';
+function roleLabel(role: 'member' | 'admin' | 'treasurer'): string {
+  if (role === 'admin') return 'parish admin';
+  if (role === 'treasurer') return 'parish treasurer';
+  return 'parish member';
 }
 
 function roleAudienceLabel(roles: string[]): string {
   const labels = roles.map((role) => {
     if (role === 'priest') return 'priests';
+    if (role === 'treasurer') return 'treasurers';
     if (role === 'admin') return 'admins';
     return 'members';
   });
@@ -224,7 +231,7 @@ export function renderInvitationEmail(input: {
   churchName: string;
   inviteUrl: string;
   mobileInviteUrl?: string;
-  role: 'member' | 'admin';
+  role: 'member' | 'admin' | 'treasurer';
   invitedByName?: string;
   expiresLabel: string;
 }): RenderedEmail {
@@ -303,14 +310,15 @@ export function renderDonationReceiptEmail(input: {
   const purpose = cleanText(input.purpose, 'General Fund');
 
   return renderLayout({
-    subject: cleanSubject(`Donation receipt from ${churchName}`),
-    preheader: `${input.formattedAmount} donation received by ${churchName}.`,
-    eyebrow: 'Giving Receipt',
+    subject: cleanSubject(`Donation confirmation from ${churchName}`),
+    preheader: `${input.formattedAmount} donation received by ${churchName}; official tax receipts are sent separately when available.`,
+    eyebrow: 'Donation Confirmation',
     title: `Thank you, ${displayName}.`,
     subtitle: `Your donation to ${churchName} has been received.`,
     churchName,
     bodyHtml: `
-      <p style="margin: 0;">This confirms the donation recorded through Kandilo for <strong style="color: ${INK};">${escapeHtml(churchName)}</strong>.</p>
+      <p style="margin: 0 0 14px;">This confirms the donation recorded through Kandilo for <strong style="color: ${INK};">${escapeHtml(churchName)}</strong>.</p>
+      <p style="margin: 0;">This payment confirmation is not an official tax receipt. If your parish issues tax receipts through Kandilo, the official receipt is sent separately with the receipt number and PDF attachment.</p>
     `,
     details: [
       { label: 'Amount', value: input.formattedAmount },
@@ -318,13 +326,154 @@ export function renderDonationReceiptEmail(input: {
       { label: 'Date', value: input.dateLabel },
       { label: 'Reference', value: input.givingId },
     ],
-    footerNote: `Questions about this gift or tax documentation should go directly to ${churchName}. Kandilo records the transaction but your parish handles official receipts and acknowledgements.`,
+    footerNote: `Questions about this gift or official tax documentation should go directly to ${churchName}. Kandilo records the transaction but your parish handles official receipts and acknowledgements.`,
     textLines: [
+      'This payment confirmation is not an official tax receipt.',
+      'Official tax receipts are sent separately when your parish has them available in Kandilo.',
       `Amount: ${input.formattedAmount}`,
       `Purpose: ${purpose}`,
       `Date: ${input.dateLabel}`,
       `Reference: ${input.givingId}`,
     ],
+  });
+}
+
+export function renderTaxReceiptEmail(input: {
+  donorName: string;
+  donorAddress?: string;
+  churchName: string;
+  organizationName: string;
+  formattedAmount: string;
+  eligibleAmount: string;
+  purpose: string;
+  receivedDateLabel: string;
+  issuedDateLabel: string;
+  receiptNumber: string;
+  goodsServicesStatement: string;
+  coveredPeriodLabel?: string;
+  contributionCount?: number;
+  contributions?: Array<{
+    dateLabel: string;
+    purpose: string;
+    amount: string;
+    eligibleAmount: string;
+  }>;
+  annualSummaryNote?: string;
+  correctionLabel?: string;
+  correctionNote?: string;
+  originalAmount?: string;
+  refundedAmount?: string;
+  jurisdiction?: string;
+  taxId?: string;
+  organizationAddress?: string;
+  receiptIssueLocation?: string;
+  authorizedSignerName?: string;
+  authorizedSignerTitle?: string;
+  secureElectronicSignatureConfigured?: boolean;
+  receiptCopiesRetentionConfirmed?: boolean;
+}): RenderedEmail {
+  const donorName = cleanText(input.donorName, 'Parishioner');
+  const donorAddress = cleanText(input.donorAddress ?? '', '');
+  const churchName = cleanText(input.churchName, 'your parish');
+  const organizationName = cleanText(input.organizationName, churchName);
+  const purpose = cleanText(input.purpose, 'General Fund');
+  const correctionLabel = cleanText(input.correctionLabel ?? '', '');
+  const correctionNote = cleanText(input.correctionNote ?? '', '');
+  const organizationAddress = cleanText(input.organizationAddress ?? '', '');
+  const isCanadaReceipt = input.jurisdiction === 'CA';
+  const authorizedSigner = [input.authorizedSignerName, input.authorizedSignerTitle]
+    .map((value) => cleanText(value ?? '', ''))
+    .filter(Boolean)
+    .join(', ');
+  const goodsServicesStatement = cleanText(
+    input.goodsServicesStatement,
+    'No goods or services were provided in exchange for this contribution.'
+  );
+  const details: EmailDetail[] = [
+    { label: 'Receipt No.', value: input.receiptNumber },
+    ...(correctionLabel ? [{ label: 'Receipt Type', value: correctionLabel }] : []),
+    ...(organizationAddress ? [{ label: 'Organization Address', value: organizationAddress }] : []),
+    ...(input.taxId ? [{ label: isCanadaReceipt ? 'Charity Registration No.' : 'Tax ID', value: input.taxId }] : []),
+    ...(isCanadaReceipt ? [{ label: 'CRA', value: `${CRA_NAME}, ${CRA_WEBSITE}` }] : []),
+    { label: 'Donor', value: donorName },
+    ...(donorAddress ? [{ label: 'Donor Address', value: donorAddress }] : []),
+    ...(input.originalAmount ? [{ label: 'Original Amount', value: input.originalAmount }] : []),
+    ...(input.refundedAmount ? [{ label: 'Refunded Amount', value: input.refundedAmount }] : []),
+    { label: 'Amount', value: input.formattedAmount },
+    { label: 'Eligible Amount', value: input.eligibleAmount },
+    { label: 'Purpose', value: purpose },
+    ...(input.contributions?.length
+      ? [{ label: 'Contribution Detail', value: 'Included in the attached PDF.' }]
+      : []),
+    ...(typeof input.contributionCount === 'number'
+      ? [{ label: 'Contributions Included', value: String(input.contributionCount) }]
+      : []),
+    ...(input.coveredPeriodLabel ? [{ label: 'Covered Period', value: input.coveredPeriodLabel }] : []),
+    { label: 'Received', value: input.receivedDateLabel },
+    { label: 'Issued', value: input.issuedDateLabel },
+    ...(isCanadaReceipt && input.receiptIssueLocation
+      ? [{ label: 'Issued Location', value: input.receiptIssueLocation }]
+      : []),
+    ...(isCanadaReceipt && authorizedSigner
+      ? [{ label: 'Authorized Signer', value: authorizedSigner }]
+      : []),
+    { label: isCanadaReceipt ? 'Advantage' : 'Goods / Services', value: goodsServicesStatement },
+  ];
+
+  const receiptIsCorrected = Boolean(correctionLabel || correctionNote);
+
+  return renderLayout({
+    subject: cleanSubject(
+      isCanadaReceipt
+        ? `Canadian receipt staging draft from ${churchName}`
+        : `${receiptIsCorrected ? 'Corrected tax receipt' : 'Tax receipt'} from ${churchName}`
+    ),
+    preheader: isCanadaReceipt
+      ? `Canadian receipt staging draft for ${input.formattedAmount} from ${churchName}.`
+      : `${input.formattedAmount} ${receiptIsCorrected ? 'corrected ' : ''}tax receipt from ${churchName}.`,
+    eyebrow: isCanadaReceipt ? 'CRA Staging Draft' : (receiptIsCorrected ? 'Corrected Tax Receipt' : 'Tax Receipt'),
+    title: isCanadaReceipt
+      ? 'Canadian receipt staging draft.'
+      : (receiptIsCorrected ? 'Your corrected tax receipt is ready.' : 'Your tax receipt is ready.'),
+    subtitle: isCanadaReceipt
+      ? CANADA_CRA_STAGING_DRAFT_NOTICE
+      : `${organizationName} issued a charitable contribution acknowledgment for your records.`,
+    churchName,
+    bodyHtml: `
+      <p style="margin: 0 0 14px;">This receipt acknowledges the contribution recorded through Kandilo for <strong style="color: ${INK};">${escapeHtml(organizationName)}</strong>.</p>
+      ${correctionNote ? `<p style="margin: 0 0 14px; color: ${INK}; font-weight: 700;">${escapeHtml(correctionNote)}</p>` : ''}
+      <p style="margin: 0 0 14px;">Keep this email with your tax records. Kandilo provides the platform; the parish is responsible for the official receipt details.</p>
+      ${input.contributions?.length ? `<p style="margin: 0 0 14px;">The attached PDF includes the itemized contribution detail for this annual receipt.</p>` : ''}
+      ${input.annualSummaryNote ? `<p style="margin: 0; color: ${MUTED};">${escapeHtml(cleanText(input.annualSummaryNote, ''))}</p>` : ''}
+    `,
+    details,
+    footerNote: `This receipt was issued by ${organizationName}. Questions about deductibility, corrections, or replacement receipts should go directly to ${churchName}.`,
+    textLines: [
+      `Receipt No.: ${input.receiptNumber}`,
+      `Organization: ${organizationName}`,
+      organizationAddress ? `Organization address: ${organizationAddress}` : '',
+      input.taxId ? `${isCanadaReceipt ? 'Charity registration number' : 'Tax ID'}: ${input.taxId}` : '',
+      isCanadaReceipt ? `${CRA_NAME}: ${CRA_WEBSITE}` : '',
+      correctionLabel ? `Receipt type: ${correctionLabel}` : '',
+      correctionNote,
+      `Donor: ${donorName}`,
+      donorAddress ? `Donor address: ${donorAddress}` : '',
+      input.originalAmount ? `Original amount: ${input.originalAmount}` : '',
+      input.refundedAmount ? `Refunded amount: ${input.refundedAmount}` : '',
+      `Amount: ${input.formattedAmount}`,
+      `Eligible amount: ${input.eligibleAmount}`,
+      `Purpose: ${purpose}`,
+      input.contributions?.length ? 'Contribution detail: included in the attached PDF.' : '',
+      input.contributionCount ? `Contributions included: ${input.contributionCount}` : '',
+      input.coveredPeriodLabel ? `Covered period: ${input.coveredPeriodLabel}` : '',
+      `Received: ${input.receivedDateLabel}`,
+      `Issued: ${input.issuedDateLabel}`,
+      isCanadaReceipt && input.receiptIssueLocation ? `Issued location: ${input.receiptIssueLocation}` : '',
+      isCanadaReceipt && authorizedSigner ? `Authorized signer: ${authorizedSigner}` : '',
+      goodsServicesStatement,
+      isCanadaReceipt ? CANADA_CRA_STAGING_DRAFT_NOTICE : '',
+      input.annualSummaryNote ? cleanText(input.annualSummaryNote, '') : '',
+    ].filter(Boolean),
   });
 }
 

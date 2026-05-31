@@ -24,6 +24,7 @@ const FIREBASE_TOOLS_CONFIG = path.join(
   os.homedir(),
   '.config/configstore/firebase-tools.json'
 );
+const FIREBASE_LOGIN_COMMAND = 'npx --no-install firebase login';
 const FIRESTORE_BASE =
   `https://firestore.googleapis.com/v1/projects/${PROJECT_ID}/databases/${DATABASE}/documents`;
 
@@ -96,16 +97,16 @@ function monthToFields(month: string, days: SaintDay[]): Record<string, FSValue>
 
 function loadAccessToken(): string {
   if (!fs.existsSync(FIREBASE_TOOLS_CONFIG)) {
-    throw new Error('Firebase tools config not found. Run: npx firebase-tools@latest login');
+    throw new Error(`Firebase tools config not found. Run: ${FIREBASE_LOGIN_COMMAND}`);
   }
   const config = JSON.parse(fs.readFileSync(FIREBASE_TOOLS_CONFIG, 'utf-8'));
   const tokens = config?.tokens;
   if (!tokens?.access_token) {
-    throw new Error('No access token. Run: npx firebase-tools@latest login');
+    throw new Error(`No access token. Run: ${FIREBASE_LOGIN_COMMAND}`);
   }
   const expiresAt: number = tokens.expires_at ?? 0;
   if (Date.now() >= expiresAt) {
-    throw new Error('Token expired. Run: npx firebase-tools@latest login');
+    throw new Error(`Token expired. Run: ${FIREBASE_LOGIN_COMMAND}`);
   }
   console.log(`Token valid for ~${Math.round((expiresAt - Date.now()) / 60000)} more minutes.`);
   return tokens.access_token as string;
@@ -132,6 +133,10 @@ function groupByMonth(days: SaintDay[]): Map<string, SaintDay[]> {
   return new Map([...months.entries()].sort(([a], [b]) => a.localeCompare(b)));
 }
 
+function firestoreBatchWriteFailure(status: number): string {
+  return `Firestore batchWrite failed (${status}). Check Firebase CLI auth, Firestore permissions, and request shape.`;
+}
+
 async function writeMonth(month: string, days: SaintDay[], token: string): Promise<void> {
   const body = {
     writes: [
@@ -154,7 +159,7 @@ async function writeMonth(month: string, days: SaintDay[], token: string): Promi
   });
 
   if (!resp.ok) {
-    throw new Error(`batchWrite failed (${resp.status}): ${await resp.text()}`);
+    throw new Error(firestoreBatchWriteFailure(resp.status));
   }
 }
 

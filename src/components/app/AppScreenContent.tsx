@@ -8,6 +8,8 @@ import { Event } from '../../data/events';
 import type { FirestoreNewsletter } from '../../lib/db/newsletters';
 import type { ChurchPost } from '../../lib/db/posts';
 import { Church, ChurchMembership, Language, Role, Screen } from '../../types';
+import type { StripeConnectReturnStatus } from '../../app/navigation';
+import type { ManagementTab } from '../../features/management/types';
 
 const CommunityView = lazy(() => import('../CommunityView'));
 const FaithAIScreen = lazy(() => import('../FaithAIScreen'));
@@ -32,11 +34,15 @@ interface AppScreenContentProps {
   newsletters: FirestoreNewsletter[];
   showSaintDays: boolean;
   selectedCalendarEvent: Event | null;
+  initialManagementTab: ManagementTab | null;
+  stripeConnectReturnStatus: StripeConnectReturnStatus | null;
+  stripeConnectReturnSequence: number | null;
   onScreenChange: (screen: Screen) => void;
   onSelectEvent: (event: Event, sourceScreen: Screen) => void;
   onCloseEventDetail: () => void;
   onClearSelectedEvent: () => void;
   onLanguageChange: (language: Language) => void;
+  onStripeConnectReturnConsumed: () => void;
 }
 
 export default function AppScreenContent({
@@ -53,11 +59,15 @@ export default function AppScreenContent({
   newsletters,
   showSaintDays,
   selectedCalendarEvent,
+  initialManagementTab,
+  stripeConnectReturnStatus,
+  stripeConnectReturnSequence,
   onScreenChange,
   onSelectEvent,
   onCloseEventDetail,
   onClearSelectedEvent,
   onLanguageChange,
+  onStripeConnectReturnConsumed,
 }: AppScreenContentProps) {
   const withLazyScreenFallback = (content: ReactElement) => (
     <Suspense fallback={<AppLoadingScreen variant="panel" />}>{content}</Suspense>
@@ -136,6 +146,10 @@ export default function AppScreenContent({
             userRole={userRole ?? 'member'}
             currentUser={currentUser}
             language={language}
+            initialTab={initialManagementTab}
+            stripeConnectReturnStatus={stripeConnectReturnStatus}
+            stripeConnectReturnSequence={stripeConnectReturnSequence}
+            onStripeConnectReturnConsumed={onStripeConnectReturnConsumed}
           />
         )
       ) : (

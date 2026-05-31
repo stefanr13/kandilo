@@ -12,6 +12,7 @@ const FIREBASE_TOOLS_CONFIG = path.join(
   os.homedir(),
   '.config/configstore/firebase-tools.json'
 );
+const FIREBASE_LOGIN_COMMAND = 'npx --no-install firebase login';
 
 const FIRESTORE_BASE =
   `https://firestore.googleapis.com/v1/projects/${PROJECT_ID}/databases/${DATABASE}/documents`;
@@ -82,18 +83,18 @@ function dayToFSFields(day: SaintDay): Record<string, FirestoreValue> {
 function loadAccessToken(): string {
   if (!fs.existsSync(FIREBASE_TOOLS_CONFIG)) {
     throw new Error(
-      `Firebase tools config not found. Run: npx firebase-tools@latest login`
+      `Firebase tools config not found. Run: ${FIREBASE_LOGIN_COMMAND}`
     );
   }
   const config = JSON.parse(fs.readFileSync(FIREBASE_TOOLS_CONFIG, 'utf-8'));
   const tokens = config?.tokens;
   if (!tokens?.access_token) {
-    throw new Error('No access token found. Run: npx firebase-tools@latest login');
+    throw new Error(`No access token found. Run: ${FIREBASE_LOGIN_COMMAND}`);
   }
   const expiresAt: number = tokens.expires_at ?? 0;
   const now = Date.now();
   if (now >= expiresAt) {
-    throw new Error('Firebase access token has expired. Run: npx firebase-tools@latest login');
+    throw new Error(`Firebase access token has expired. Run: ${FIREBASE_LOGIN_COMMAND}`);
   }
   console.log(`Token valid for ~${Math.round((expiresAt - now) / 60000)} more minutes.`);
   return tokens.access_token as string;
@@ -140,6 +141,10 @@ function chunk<T>(arr: T[], size: number): T[][] {
   return chunks;
 }
 
+function firestoreBatchWriteFailure(status: number): string {
+  return `Firestore batchWrite failed (${status}). Check Firebase CLI auth, Firestore permissions, and request shape.`;
+}
+
 // ── Firestore REST batchWrite ─────────────────────────────────────────────────
 
 interface BatchWrite {
@@ -165,8 +170,7 @@ async function batchWrite(writes: BatchWrite['writes'], token: string): Promise<
   });
 
   if (!resp.ok) {
-    const errText = await resp.text();
-    throw new Error(`Firestore batchWrite failed (${resp.status}): ${errText}`);
+    throw new Error(firestoreBatchWriteFailure(resp.status));
   }
 
   const result = await resp.json() as { writeResults?: unknown[]; status?: unknown[] };
@@ -174,7 +178,7 @@ async function batchWrite(writes: BatchWrite['writes'], token: string): Promise<
   if (statuses) {
     const failures = statuses.filter((s) => s?.code && s.code !== 0);
     if (failures.length > 0) {
-      throw new Error(`Partial write failures: ${JSON.stringify(failures)}`);
+      throw new Error(`Partial write failures: ${failures.length} Firestore write(s) failed. Check Firebase permissions and source data shape.`);
     }
   }
 }

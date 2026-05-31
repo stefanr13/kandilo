@@ -13,7 +13,7 @@ import {
   renderPasswordResetEmail,
 } from '../shared/emailTemplates';
 import { sanitizedErrorContext } from '../shared/logging';
-import { assertEmail, assertNonEmptyString } from '../shared/validation';
+import { assertEmail, assertNonEmptyString, callableDataRecord } from '../shared/validation';
 
 const DEFAULT_APP_URL = 'https://app.kandilo.org';
 
@@ -75,7 +75,7 @@ export const sendPasswordResetEmail = onCall(
   async (request) => {
     assertFreshAppCheck(request);
 
-    const { email: rawEmail } = request.data as { email?: unknown };
+    const { email: rawEmail } = callableDataRecord(request.data);
     const email = assertEmail(assertNonEmptyString(rawEmail, 254, 'email'), 'email');
     await checkRateLimit(normalizeEmail(email), 'sendPasswordResetEmail', 3, 60 * 60 * 1000);
 
@@ -84,34 +84,37 @@ export const sendPasswordResetEmail = onCall(
       userRecord = await auth.getUserByEmail(email);
     } catch (error) {
       console.warn('Password reset requested for non-existent email.', sanitizedErrorContext(error));
-      return { success: true, emailSent: false };
+      return { success: true, emailSent: true };
     }
 
     if (userRecord.disabled || !userRecord.email) {
-      return { success: true, emailSent: false };
+      return { success: true, emailSent: true };
     }
 
-    const link = await auth.generatePasswordResetLink(
-      userRecord.email,
-      actionCodeSettings('reset-password')
-    );
-    const resetEmail = renderPasswordResetEmail({
-      displayName: userRecord.displayName ?? 'there',
-      resetUrl: link,
-    });
-
-    const response = await getResend().emails.send({
-      from: 'Kandilo <auth@kandilo.org>',
-      to: userRecord.email,
-      subject: resetEmail.subject,
-      html: resetEmail.html,
-      text: resetEmail.text,
-    });
-    if (response.error) {
-      console.error('Password reset email provider rejected request.', {
-        errorName: response.error.name ?? 'ResendError',
+    try {
+      const link = await auth.generatePasswordResetLink(
+        userRecord.email,
+        actionCodeSettings('reset-password')
+      );
+      const resetEmail = renderPasswordResetEmail({
+        displayName: userRecord.displayName ?? 'there',
+        resetUrl: link,
       });
-      throw new HttpsError('internal', 'Password reset email could not be sent.');
+
+      const response = await getResend().emails.send({
+        from: 'Kandilo <auth@kandilo.org>',
+        to: userRecord.email,
+        subject: resetEmail.subject,
+        html: resetEmail.html,
+        text: resetEmail.text,
+      });
+      if (response.error) {
+        console.error('Password reset email provider rejected request.', {
+          errorName: response.error.name ?? 'ResendError',
+        });
+      }
+    } catch (error) {
+      console.error('Password reset email send failed:', sanitizedErrorContext(error));
     }
 
     return { success: true, emailSent: true };

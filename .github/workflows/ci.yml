@@ -44,6 +44,9 @@ jobs:
       - name: Install Functions dependencies
         run: npm --prefix functions ci
 
+      - name: Stripe and tax receipt production readiness
+        run: npm run check:stripe-production:ci
+
       - name: Typecheck, Functions lint, and unit tests
         run: npm run check
 

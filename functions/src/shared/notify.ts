@@ -22,7 +22,7 @@ export async function notifyChurchMembers(
       title,
       body,
       data,
-      targetRoles: targetRoles ?? ['member', 'admin', 'priest'],
+      targetRoles: targetRoles ?? ['member', 'admin', 'treasurer', 'priest'],
       recordedAt: FieldValue.serverTimestamp(),
     });
     return;

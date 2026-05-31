@@ -15,7 +15,7 @@ import {
 } from '../shared/security';
 import { sanitizedErrorContext } from '../shared/logging';
 import { renderNewsletterEmail, renderParishNotificationEmail } from '../shared/emailTemplates';
-import { assertNonEmptyString } from '../shared/validation';
+import { assertNonEmptyString, callableDataRecord } from '../shared/validation';
 
 const DEFAULT_APP_URL = 'https://app.kandilo.org';
 const DEFAULT_MOBILE_APP_URL = 'kandilo://app/';
@@ -31,12 +31,19 @@ function getMobileAppUrl(): string {
   return process.env.MOBILE_APP_URL?.trim() || DEFAULT_MOBILE_APP_URL;
 }
 
+async function getActiveChurch(churchId: string): Promise<FirebaseFirestore.DocumentData | null> {
+  const churchDoc = await db.collection('churches').doc(churchId).get();
+  const church = churchDoc.data();
+  return church?.isActive === true ? church : null;
+}
+
 export const onEventCreated = onDocumentCreated({ region: FIRESTORE_REGION, document: 'events/{eventId}' }, async (event) => {
   const data = event.data?.data();
   if (!data) return;
 
   const { churchId, title, startTime } = data;
   if (typeof churchId !== 'string' || typeof title !== 'string' || !churchId || !title) return;
+  if (!(await getActiveChurch(churchId))) return;
 
   try {
     await checkRateLimit(churchId, 'eventFanoutByChurch', 10, 60 * 60 * 1000);
@@ -62,7 +69,7 @@ export const onEventCreated = onDocumentCreated({ region: FIRESTORE_REGION, docu
     title: `New Event: ${safeTitle}`,
     body: `Join us for ${safeTitle} on ${dateStr}`,
     type: 'event',
-    targetRoles: ['member', 'admin', 'priest'],
+    targetRoles: ['member', 'admin', 'treasurer', 'priest'],
     sentAt: FieldValue.serverTimestamp(),
     sentBy: 'system',
     deliveryStats: { sent: 0, failed: 0, opened: 0 },
@@ -79,6 +86,9 @@ async function fanOutPublishedNewsletter(
 
   const { churchId, title, excerpt } = newsletter;
   if (typeof churchId !== 'string' || typeof title !== 'string' || !churchId || !title) return;
+
+  const church = await getActiveChurch(churchId);
+  if (!church) return;
 
   try {
     await checkRateLimit(churchId, 'newsletterFanoutByChurch', 5, 60 * 60 * 1000);
@@ -133,7 +143,7 @@ async function fanOutPublishedNewsletter(
     title: notificationTitle,
     body: notificationBody,
     type: 'newsletter',
-    targetRoles: ['member', 'admin', 'priest'],
+    targetRoles: ['member', 'admin', 'treasurer', 'priest'],
     newsletterId,
     sentAt: FieldValue.serverTimestamp(),
     sentBy: 'system',
@@ -142,8 +152,7 @@ async function fanOutPublishedNewsletter(
 
   try {
     const resend = getResend();
-    const churchDoc = await db.collection('churches').doc(churchId).get();
-    const churchName: string = churchDoc.data()?.name ?? 'your parish';
+    const churchName: string = church.name ?? 'your parish';
     const membersSnap = await db
       .collection('churches')
       .doc(churchId)
@@ -229,22 +238,21 @@ export const sendPushNotification = onCall({ ...replayProtectedCallableOptions, 
   assertVerifiedNonAnonymousUser(request, 'A verified, non-anonymous account is required to send notifications.');
   await checkRateLimit(request.auth!.uid, 'sendPushNotification', 5);
 
-  const { churchId: rawChurchId, title: rawTitle, body: rawBody, targetRoles = ['member', 'admin', 'priest'] } = request.data as {
-    churchId: unknown;
-    title: unknown;
-    body: unknown;
-    targetRoles?: unknown;
-  };
+  const {
+    churchId: rawChurchId,
+    title: rawTitle,
+    body: rawBody,
+    targetRoles = ['member', 'admin', 'treasurer', 'priest'],
+  } = callableDataRecord(request.data);
 
   const churchId = assertNonEmptyString(rawChurchId, 128, 'churchId');
   const title = assertNonEmptyString(rawTitle, 100, 'title');
   const body = assertNonEmptyString(rawBody, 300, 'body');
-  await checkRateLimit(churchId, 'sendPushNotificationByChurch', 20, 60 * 60 * 1000);
 
-  if (!Array.isArray(targetRoles) || targetRoles.length === 0 || targetRoles.length > 3) {
-    throw new HttpsError('invalid-argument', 'targetRoles must contain between 1 and 3 roles.');
+  if (!Array.isArray(targetRoles) || targetRoles.length === 0 || targetRoles.length > 4) {
+    throw new HttpsError('invalid-argument', 'targetRoles must contain between 1 and 4 roles.');
   }
-  if (targetRoles.some((role) => !['member', 'admin', 'priest'].includes(role))) {
+  if (targetRoles.some((role) => !['member', 'admin', 'treasurer', 'priest'].includes(role))) {
     throw new HttpsError('invalid-argument', 'targetRoles contains an unsupported role.');
   }
 
@@ -255,6 +263,8 @@ export const sendPushNotification = onCall({ ...replayProtectedCallableOptions, 
     'Only active admins and priests can send notifications.'
   );
   const callerName: string = callerMembership.displayName ?? 'Parish Admin';
+  await checkRateLimit(churchId, 'sendPushNotificationByChurch', 20, 60 * 60 * 1000);
+
   const churchDoc = await db.collection('churches').doc(churchId).get();
   const churchName: string = churchDoc.data()?.name ?? 'your parish';
 

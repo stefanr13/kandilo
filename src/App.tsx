@@ -13,11 +13,13 @@ import type { Language } from './types';
 
 const AuthScreen = lazy(() => import('./components/AuthScreen'));
 const InvitationAcceptScreen = lazy(() => import('./components/InvitationAcceptScreen'));
+const EmailVerificationGate = lazy(() => import('./components/app/EmailVerificationGate'));
 const AuthenticatedApp = lazy(() => import('./components/app/AuthenticatedApp'));
 
 export default function App() {
   const { user, loading: authLoading, isSuperAdmin } = useAuth();
   const [language, setLanguage] = useState<Language>('English');
+  const [emailVerificationRefreshKey, setEmailVerificationRefreshKey] = useState(0);
   const { pendingInvitationId, clearPendingInvitation } = usePendingInvitation();
 
   const handleLogin = (lang: Language) => {
@@ -42,6 +44,21 @@ export default function App() {
                 ? extra.auth.invitationSignInContext
                 : undefined
             }
+          />
+        </Suspense>
+      </ErrorBoundary>
+    );
+  }
+
+  if (!user.isAnonymous && user.emailVerified !== true) {
+    return (
+      <ErrorBoundary language={language}>
+        <Suspense fallback={<AppLoadingScreen variant="page" />}>
+          <EmailVerificationGate
+            key={`${user.uid}:${emailVerificationRefreshKey}`}
+            user={user}
+            language={language}
+            onVerified={() => setEmailVerificationRefreshKey((current) => current + 1)}
           />
         </Suspense>
       </ErrorBoundary>

@@ -228,6 +228,7 @@ export default function MissionControlChurchesTab({
                           className="w-full bg-gray-800 border-none rounded-xl px-4 py-3 text-xs font-bold text-white focus:ring-2 focus:ring-[#800000]/40"
                         >
                           <option value="priest">Priest</option>
+                          <option value="treasurer">Treasurer</option>
                           <option value="admin">Admin</option>
                           <option value="member">Member</option>
                         </select>

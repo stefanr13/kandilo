@@ -7,10 +7,7 @@ import ChurchFormSheet from './mission-control/ChurchFormSheet';
 import MissionControlHeader from './mission-control/MissionControlHeader';
 import MissionControlOverviewTab from './mission-control/MissionControlOverviewTab';
 import MissionControlTabBar, { MCTab } from './mission-control/MissionControlTabBar';
-import {
-  buildEditChurchForm,
-  EMPTY_CHURCH_FORM,
-} from './mission-control/missionControlForm';
+import { EMPTY_CHURCH_FORM } from './mission-control/missionControlForm';
 import { useMissionControl } from './mission-control/useMissionControl';
 
 interface MissionControlScreenProps {
@@ -25,11 +22,14 @@ export default function MissionControlScreen({
   const [activeTab, setActiveTab] = useState<MCTab>('overview');
   const {
     stats,
+    paymentOperationsReadiness,
+    taxReceiptAuditEvents,
     filteredStats,
     statsLoading,
     statsError,
     showAddChurch,
     editingChurch,
+    editingChurchForm,
     formLoading,
     formError,
     confirmDeactivateId,
@@ -62,6 +62,7 @@ export default function MissionControlScreen({
     cancelDeactivate,
     handleAddChurch,
     handleEditChurch,
+    handleCreateStripeConnectAccount,
     handleSetActive,
     handlePromote,
     handleAssignMembership,
@@ -130,7 +131,12 @@ export default function MissionControlScreen({
           )}
 
           {activeTab === 'analytics' && (
-            <MissionControlAnalyticsTab stats={stats} statsLoading={statsLoading} />
+            <MissionControlAnalyticsTab
+              stats={stats}
+              paymentOperationsReadiness={paymentOperationsReadiness}
+              taxReceiptAuditEvents={taxReceiptAuditEvents}
+              statsLoading={statsLoading}
+            />
           )}
         </AnimatePresence>
       </div>
@@ -148,10 +154,11 @@ export default function MissionControlScreen({
         {editingChurch && (
           <ChurchFormSheet
             title="Edit Church"
-            initial={buildEditChurchForm(editingChurch)}
+            initial={editingChurchForm ?? EMPTY_CHURCH_FORM}
             onSubmit={(form) => void handleEditChurch(form)}
             onCancel={closeEditChurch}
             loading={formLoading}
+            onCreateStripeConnectAccount={handleCreateStripeConnectAccount}
           />
         )}
       </AnimatePresence>
