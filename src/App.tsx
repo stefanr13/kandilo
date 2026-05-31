@@ -6,6 +6,8 @@
 import { Suspense, lazy, useState } from 'react';
 import ErrorBoundary from './components/ErrorBoundary';
 import AppLoadingScreen from './components/app/AppLoadingScreen';
+import ComingSoonScreen from './components/app/ComingSoonScreen';
+import { COMING_SOON_ENABLED } from './config/features';
 import { useAuth } from './hooks/useAuth';
 import { usePendingInvitation } from './hooks/usePendingInvitation';
 import { getExtraCopy } from './localization/extra';
@@ -17,6 +19,10 @@ const EmailVerificationGate = lazy(() => import('./components/app/EmailVerificat
 const AuthenticatedApp = lazy(() => import('./components/app/AuthenticatedApp'));
 
 export default function App() {
+  if (COMING_SOON_ENABLED) {
+    return <ComingSoonScreen />;
+  }
+
   const { user, loading: authLoading, isSuperAdmin } = useAuth();
   const [language, setLanguage] = useState<Language>('English');
   const [emailVerificationRefreshKey, setEmailVerificationRefreshKey] = useState(0);

@@ -16,6 +16,7 @@
     "dev:lan": "vite --port=3000 --host=0.0.0.0",
     "prebuild": "npm run write:firebase-messaging-sw-config",
     "build": "vite build",
+    "build:coming-soon": "VITE_COMING_SOON=true npm run build",
     "preview": "vite preview",
     "clean": "rm -rf dist",
     "typecheck": "tsc --noEmit",
