@@ -65,6 +65,24 @@ function readText(relativePath) {
   return existsSync(filePath) ? readFileSync(filePath, 'utf8') : null;
 }
 
+function readGivingModuleSource() {
+  const legacySingleFileSource = readText('functions/src/modules/giving.ts');
+  if (legacySingleFileSource !== null) {
+    return legacySingleFileSource;
+  }
+
+  const givingDir = resolve(root, 'functions/src/modules/giving');
+  if (!existsSync(givingDir) || !statSync(givingDir).isDirectory()) {
+    return '';
+  }
+
+  return readdirSync(givingDir)
+    .filter((file) => file.endsWith('.ts'))
+    .sort()
+    .map((file) => readFileSync(resolve(givingDir, file), 'utf8'))
+    .join('\n');
+}
+
 function readJson(relativePath) {
   const text = readText(relativePath);
   if (text === null) return null;
@@ -1172,7 +1190,7 @@ const functionsIndexSource = readText('functions/src/index.ts') ?? '';
 const functionsRegionsSource = readText('functions/src/shared/regions.ts') ?? '';
 const authProfileBootstrapSource = readText('functions/src/onUserCreated.ts') ?? '';
 const authProfileBootstrapTestSource = readText('tests/functions/onUserCreated.test.ts') ?? '';
-const givingFunctionsSource = readText('functions/src/modules/giving.ts') ?? '';
+const givingFunctionsSource = readGivingModuleSource();
 const superAdminFunctionsSource = readText('functions/src/modules/superAdmin.ts') ?? '';
 const liveResendCheckSource = readText('scripts/check-resend-live.mjs') ?? '';
 const liveResendCheckTestSource = readText('src/lib/resend-live-script.test.ts') ?? '';
@@ -2235,7 +2253,7 @@ record(
   'Guarded tax receipt deploy helper requires Node 22, uses the repo-pinned Firebase CLI, and bundles strict native-link readiness, full QA, Functions, Firestore rules/indexes, Storage rules, Hosting, live drift verification, and legacy visibility audit gating'
 );
 
-const givingSource = readText('functions/src/modules/giving.ts') ?? '';
+const givingSource = readGivingModuleSource();
 const superAdminSource = readText('functions/src/modules/superAdmin.ts') ?? '';
 const sharedSecuritySource = readText('functions/src/shared/security.ts') ?? '';
 const appUrlSource = readText('functions/src/shared/appUrl.ts') ?? '';
@@ -2376,10 +2394,11 @@ record(
     'requires APP_URL to be an HTTPS URL.',
     'requires APP_URL to be a base URL without credentials, query, or fragment.',
   ])
-  && includesEvery(givingSource, [
+  && includesAny(givingSource, [
     "import { configuredStripeReturnAppUrl } from '../shared/appUrl';",
-    "configuredStripeReturnAppUrl(process.env.APP_URL, DEFAULT_APP_URL, 'Stripe Checkout')",
+    "import { configuredStripeReturnAppUrl } from '../../shared/appUrl';",
   ])
+  && givingSource.includes("configuredStripeReturnAppUrl(process.env.APP_URL, DEFAULT_APP_URL, 'Stripe Checkout')")
   && includesEvery(superAdminSource, [
     "import { configuredStripeReturnAppUrl, stripeReturnAppUrlReadiness } from '../shared/appUrl';",
     "configuredStripeReturnAppUrl(\n    process.env.APP_URL,\n    'https://app.kandilo.org',\n    'Stripe Connect onboarding'\n  )",
@@ -3798,11 +3817,12 @@ record(
 	    'receiptId:',
 	    'createdAtMillis',
 	  ])
-  && includesEvery(givingSource, [
+  && includesAny(givingSource, [
     "import { GENERIC_TAX_RECEIPT_AUDIT_CODE, publicTaxReceiptAuditCode } from '../shared/taxReceiptAudit';",
-    'publicTaxReceiptAuditCode(input.errorCode)',
-    'publicTaxReceiptAuditCode(input.reasonCode)',
+    "import { GENERIC_TAX_RECEIPT_AUDIT_CODE, publicTaxReceiptAuditCode } from '../../shared/taxReceiptAudit';",
   ])
+  && givingSource.includes('publicTaxReceiptAuditCode(input.errorCode)')
+  && givingSource.includes('publicTaxReceiptAuditCode(input.reasonCode)')
   && includesEvery(functionsTaxReceiptAuditSource, [
     "GENERIC_TAX_RECEIPT_AUDIT_CODE = 'receipt_audit_issue'",
 	    'PUBLIC_TAX_RECEIPT_AUDIT_CODES',
