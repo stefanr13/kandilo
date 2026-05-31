@@ -58,6 +58,50 @@ npx --no-install firebase deploy --only hosting --project kandilo-2f7a9
 npm run check:firebase-live
 ```
 
+### Public Coming-Soon Gate And Full-App Preview QA
+
+When the public app should stay unpublished, deploy the gated holding-page build
+to the live Firebase Hosting site:
+
+```bash
+npm run build:coming-soon
+npx --no-install firebase deploy --only hosting --project kandilo-2f7a9
+```
+
+This keeps both `https://app.kandilo.org` and
+`https://kandilo-2f7a9.web.app` on the "Kandilo is preparing for launch"
+screen. The gate is controlled by `VITE_COMING_SOON=true`; the normal app shell
+is not mounted in that build.
+
+To test the full production web app without replacing the public holding page,
+build normally and deploy the current `dist` output to a Firebase Hosting preview
+channel:
+
+```bash
+npm run build
+npx --no-install firebase hosting:channel:deploy full-app-test --project kandilo-2f7a9 --expires 30d
+```
+
+Use the printed channel URL for production-like QA. For example, the current
+full-app test channel is:
+
+```text
+https://kandilo-2f7a9--full-app-test-62rxs576.web.app
+```
+
+Do not deploy the normal `npm run build` output to live Hosting while the public
+app is meant to remain unpublished. After publishing or refreshing a preview
+channel, rebuild and redeploy `build:coming-soon` to live Hosting if there is
+any uncertainty about which bundle is currently on the public channel.
+
+When the app is ready to publish publicly, remove the gate by deploying a normal
+production build to live Hosting:
+
+```bash
+npm run build
+npx --no-install firebase deploy --only hosting --project kandilo-2f7a9
+```
+
 For the Stripe/tax receipt release surface specifically, prefer the guarded helper so Functions, Firestore rules, Firestore indexes, Storage rules, and the hosted portal UI are deployed together after the full local QA gate:
 
 ```bash
