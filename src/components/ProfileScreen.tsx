@@ -20,7 +20,7 @@ import { getExtraCopy } from '../localization/extra';
 import { getFirebaseAuthError, signOut } from '../lib/auth';
 import { joinChurch } from '../lib/api/churches';
 import { leaveChurch, listAllChurches } from '../lib/db/churches';
-import { EMPTY_TAX_RECEIPT_ADDRESS, getUserProfile, updateUserAvatar, updateUserProfile } from '../lib/db/profile';
+import { EMPTY_TAX_RECEIPT_ADDRESS, getUserProfile, updateUserAvatar, updateUserLanguage, updateUserProfile } from '../lib/db/profile';
 import { uploadUserAvatar } from '../lib/storage/uploads';
 
 interface ProfileScreenProps {
@@ -122,6 +122,7 @@ export default function ProfileScreen({ onBack, language, onLanguageChange, user
     taxReceiptLegalName: '',
     taxReceiptAddress: EMPTY_TAX_RECEIPT_ADDRESS,
   });
+  const [profileBaseline, setProfileBaseline] = useState<typeof formData | null>(null);
 
   useEffect(() => {
     if (!user) {
@@ -136,7 +137,7 @@ export default function ProfileScreen({ onBack, language, onLanguageChange, user
           return;
         }
 
-        setFormData({
+        const nextFormData = {
           fullName: profile?.displayName || user.displayName || '',
           email: user.email ?? profile?.email ?? '',
           cell: profile?.phone ?? '',
@@ -146,7 +147,9 @@ export default function ProfileScreen({ onBack, language, onLanguageChange, user
           preferredLanguage: profile?.preferredLanguage ?? language,
           taxReceiptLegalName: profile?.taxReceiptLegalName ?? '',
           taxReceiptAddress: profile?.taxReceiptAddress ?? EMPTY_TAX_RECEIPT_ADDRESS,
-        });
+        };
+        setFormData(nextFormData);
+        setProfileBaseline(nextFormData);
       })
       .catch((error) => {
         console.error('Failed to load profile:', error);
@@ -192,7 +195,24 @@ export default function ProfileScreen({ onBack, language, onLanguageChange, user
         await updateFirebaseProfile(user, { displayName: fullName });
       }
 
-      await updateUserProfile(user.uid, {
+      const onlyLanguageChanged = Boolean(
+        profileBaseline
+        && formData.preferredLanguage !== profileBaseline.preferredLanguage
+        && fullName === profileBaseline.fullName.trim()
+        && formData.cell.trim() === profileBaseline.cell.trim()
+        && formData.taxReceiptLegalName.trim() === profileBaseline.taxReceiptLegalName.trim()
+        && formData.taxReceiptAddress.line1.trim() === profileBaseline.taxReceiptAddress.line1.trim()
+        && formData.taxReceiptAddress.line2.trim() === profileBaseline.taxReceiptAddress.line2.trim()
+        && formData.taxReceiptAddress.city.trim() === profileBaseline.taxReceiptAddress.city.trim()
+        && formData.taxReceiptAddress.region.trim() === profileBaseline.taxReceiptAddress.region.trim()
+        && formData.taxReceiptAddress.postalCode.trim() === profileBaseline.taxReceiptAddress.postalCode.trim()
+        && formData.taxReceiptAddress.country.trim() === profileBaseline.taxReceiptAddress.country.trim()
+      );
+
+      if (onlyLanguageChanged) {
+        await updateUserLanguage(user.uid, formData.preferredLanguage);
+      } else {
+        await updateUserProfile(user.uid, {
         displayName: fullName,
         preferredLanguage: formData.preferredLanguage,
         phone: formData.cell.trim(),
@@ -201,12 +221,27 @@ export default function ProfileScreen({ onBack, language, onLanguageChange, user
         showInDirectory: formData.showInDirectory,
         taxReceiptLegalName: formData.taxReceiptLegalName,
         taxReceiptAddress: formData.taxReceiptAddress,
-      });
+        });
+      }
 
       if (formData.preferredLanguage !== language) {
         onLanguageChange(formData.preferredLanguage);
       }
 
+      setProfileBaseline({
+        ...formData,
+        fullName,
+        cell: formData.cell.trim(),
+        taxReceiptLegalName: formData.taxReceiptLegalName.trim(),
+        taxReceiptAddress: {
+          line1: formData.taxReceiptAddress.line1.trim(),
+          line2: formData.taxReceiptAddress.line2.trim(),
+          city: formData.taxReceiptAddress.city.trim(),
+          region: formData.taxReceiptAddress.region.trim(),
+          postalCode: formData.taxReceiptAddress.postalCode.trim(),
+          country: formData.taxReceiptAddress.country.trim(),
+        },
+      });
       setProfileMessage(extra.profileUpdated);
     } catch (error) {
       console.error('Failed to update profile:', error);
