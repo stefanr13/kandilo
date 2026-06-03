@@ -113,6 +113,9 @@ function SaintsMonthView({
     selectedDay?.names
       .map((name) => getSaintLocalizedText(name, language, false))
       .filter(Boolean) ?? [];
+  const featuredSaintName = selectedNames[0] ?? '';
+  const visibleAdditionalSaints = selectedNames.slice(1, 4);
+  const hiddenAdditionalSaintsCount = Math.max(selectedNames.length - 1 - visibleAdditionalSaints.length, 0);
   const listedDays = Object.values(saintsForMonth)
     .filter((day) => day.names.length > 0)
     .sort((a, b) => a.date.localeCompare(b.date));
@@ -135,7 +138,9 @@ function SaintsMonthView({
       <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <h2 className="text-2xl font-bold text-gray-900">{t.saintsOfMonth}</h2>
-          <p className="text-gray-500 text-xs mt-1">{t.saintsSub}</p>
+          <p className="text-gray-500 text-xs mt-1">
+            One featured commemoration is shown per day; additional saints stay in the day detail.
+          </p>
         </div>
         <div className="flex items-center gap-3">
           <h3 className="text-sm font-black text-gray-900 uppercase tracking-widest min-w-0">
@@ -191,12 +196,12 @@ function SaintsMonthView({
                   type="button"
                   disabled={!cell.day}
                   onClick={() => dateKey && setSelectedDateKey(dateKey)}
-                  className={`min-h-[78px] sm:min-h-[108px] bg-white p-1.5 text-left transition-colors ${
+                  className={`min-h-[82px] sm:min-h-[118px] bg-white p-2 text-left transition-colors ${
                     cell.day ? 'hover:bg-gray-50 cursor-pointer' : 'bg-gray-50/70 cursor-default'
                   } ${isSelected ? 'ring-2 ring-inset ring-[#800000]' : ''}`}
                 >
                   {cell.day && (
-                    <>
+                    <div className="flex h-full flex-col">
                       <span
                         className={`inline-flex h-5 min-w-5 items-center justify-center rounded-full px-1 text-[11px] font-black ${
                           isToday ? 'bg-[#800000] text-white' : isSelected ? 'text-[#800000]' : 'text-gray-400'
@@ -205,18 +210,18 @@ function SaintsMonthView({
                         {cell.day}
                       </span>
                       {primaryName && (
-                        <div className="mt-1 space-y-0.5">
-                          <p className="line-clamp-3 text-[8px] sm:text-[9px] font-bold leading-tight text-[#800000]">
+                        <div className="mt-2 flex flex-1 flex-col justify-between gap-1">
+                          <p className="line-clamp-2 text-[10px] font-black leading-tight text-[#800000] sm:text-[11px]">
                             {primaryName}
                           </p>
                           {names.length > 1 && (
-                            <p className="text-[8px] font-black uppercase tracking-widest text-[#937022]">
-                              +{names.length - 1}
-                            </p>
+                            <span className="mt-auto inline-flex w-fit rounded-full bg-[#937022]/10 px-2 py-0.5 text-[8px] font-black uppercase tracking-widest text-[#937022]">
+                              +{names.length - 1} more
+                            </span>
                           )}
                         </div>
                       )}
-                    </>
+                    </div>
                   )}
                 </button>
               );
@@ -228,16 +233,27 @@ function SaintsMonthView({
           <span className="text-[9px] font-black text-[#937022] uppercase tracking-widest">
             {selectedDateTitle}
           </span>
+          <p className="mt-4 text-[9px] font-black uppercase tracking-widest text-gray-300">
+            Featured commemoration
+          </p>
           <h3 className="mt-1 text-lg font-black text-gray-900 tracking-tight">
-            {selectedNames.length > 0 ? selectedNames[0] : 'No commemoration listed'}
+            {featuredSaintName || 'No commemoration listed'}
           </h3>
-          {selectedNames.length > 1 && (
+          {visibleAdditionalSaints.length > 0 && (
             <div className="mt-4 space-y-2">
-              {selectedNames.slice(1).map((name) => (
+              <p className="text-[9px] font-black uppercase tracking-widest text-gray-300">
+                Also commemorated
+              </p>
+              {visibleAdditionalSaints.map((name) => (
                 <p key={name} className="rounded-2xl bg-gray-50 px-4 py-3 text-xs font-bold leading-snug text-gray-600">
                   {name}
                 </p>
               ))}
+              {hiddenAdditionalSaintsCount > 0 && (
+                <p className="rounded-2xl bg-[#937022]/10 px-4 py-3 text-[10px] font-black uppercase tracking-widest text-[#937022]">
+                  +{hiddenAdditionalSaintsCount} additional commemorations
+                </p>
+              )}
             </div>
           )}
           {selectedNames.length === 0 && listedDays.length > 0 && (
