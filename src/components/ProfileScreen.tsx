@@ -1,7 +1,7 @@
 import { useRef, useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
-  ArrowLeft, Camera, Mail, Phone, FileText, CheckCircle2,
+  ArrowLeft, Camera, Mail, Phone, FileText,
   Lock, X, Eye, EyeOff, Globe, LogOut, Church, LogOut as LeaveIcon,
   Loader2, MapPin, ShieldCheck,
 } from 'lucide-react';
@@ -175,13 +175,6 @@ export default function ProfileScreen({ onBack, language, onLanguageChange, user
   useEffect(() => {
     setAvatarUrl(user?.photoURL ?? '');
   }, [user?.photoURL]);
-
-  const toggleMinistry = (ministry: string) => {
-    const newMinistries = formData.ministries.includes(ministry)
-      ? formData.ministries.filter(m => m !== ministry)
-      : [...formData.ministries, ministry];
-    setFormData({ ...formData, ministries: newMinistries });
-  };
 
   const handleSaveProfile = async () => {
     if (!user) return;
@@ -597,50 +590,7 @@ export default function ProfileScreen({ onBack, language, onLanguageChange, user
             </div>
           </div>
 
-          <div className="space-y-4">
-            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">{t.ministriesInvolved}</label>
-            <div className="flex flex-wrap gap-2">
-              {Object.entries(t.ministryList).map(([key, value]) => (
-                <button
-                  key={key}
-                  onClick={() => toggleMinistry(key)}
-                  className={`px-4 py-2 rounded-xl text-[10px] font-bold transition-all ${
-                    formData.ministries.includes(key)
-                      ? 'bg-[#800000] text-white shadow-md'
-                      : 'bg-gray-50 text-gray-500 border border-gray-100'
-                  }`}
-                >
-                  {value}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div className="space-y-2">
-            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">{t.spiritualBio}</label>
-            <div className="relative">
-              <FileText size={16} className="absolute left-6 top-6 text-gray-300" />
-              <textarea 
-                value={formData.description}
-                onChange={(e) => setFormData({...formData, description: e.target.value})}
-                rows={4}
-                className="w-full bg-gray-50 border-none rounded-2xl pl-14 pr-6 py-4 text-sm font-bold text-gray-900 focus:ring-2 focus:ring-[#800000]/20 transition-all resize-none"
-              />
-            </div>
-          </div>
-
-          <button 
-            onClick={() => setFormData({...formData, showInDirectory: !formData.showInDirectory})}
-            className="w-full flex items-center gap-4 p-6 bg-gray-50 rounded-3xl group hover:bg-gray-100 transition-all"
-          >
-            <div className={`w-6 h-6 rounded-lg flex items-center justify-center transition-all ${formData.showInDirectory ? 'bg-[#800000] text-white' : 'bg-white border-2 border-gray-200'}`}>
-              {formData.showInDirectory && <CheckCircle2 size={16} />}
-            </div>
-            <div className="flex-1 text-left">
-              <h4 className="text-sm font-black text-gray-900 leading-tight">{t.showInDirectory}</h4>
-              <p className="text-[10px] text-gray-400 font-bold mt-0.5">{t.showInDirectorySub}</p>
-            </div>
-          </button>
+          
 
           {/* ── My Churches (mobile only — desktop shows in left panel) ── */}
           <div className="lg:hidden space-y-3">
