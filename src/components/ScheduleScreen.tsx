@@ -7,6 +7,7 @@ import { TRANSLATIONS } from '../translations';
 import FullCalendar from './FullCalendar';
 import { useSaintsForMonth } from '../hooks/useSaintsForMonth';
 import { getSaintLocalizedText } from '../lib/db/saints';
+import { getSaintDayDisplay } from '../lib/db/saintPriority';
 
 export interface ScheduleScreenProps {
   events: Event[];
@@ -109,13 +110,7 @@ function SaintsMonthView({
   );
   const cells = useMemo(() => getCalendarCells(currentMonth), [currentMonth]);
   const selectedDay = saintsForMonth[selectedDateKey] ?? null;
-  const selectedNames =
-    selectedDay?.names
-      .map((name) => getSaintLocalizedText(name, language, false))
-      .filter(Boolean) ?? [];
-  const featuredSaintName = selectedNames[0] ?? '';
-  const visibleAdditionalSaints = selectedNames.slice(1, 4);
-  const hiddenAdditionalSaintsCount = Math.max(selectedNames.length - 1 - visibleAdditionalSaints.length, 0);
+  const selectedDisplay = getSaintDayDisplay(selectedDay, language);
   const listedDays = Object.values(saintsForMonth)
     .filter((day) => day.names.length > 0)
     .sort((a, b) => a.date.localeCompare(b.date));
@@ -178,11 +173,7 @@ function SaintsMonthView({
             {cells.map((cell, index) => {
               const dateKey = cell.day ? getDateKey(year, month, cell.day) : null;
               const saintDay = dateKey ? saintsForMonth[dateKey] : null;
-              const names =
-                saintDay?.names
-                  .map((name) => getSaintLocalizedText(name, language, false))
-                  .filter(Boolean) ?? [];
-              const primaryName = names[0] ?? '';
+              const dayDisplay = getSaintDayDisplay(saintDay, language);
               const isSelected = dateKey === selectedDateKey;
               const today = new Date();
               const isToday =
@@ -209,14 +200,14 @@ function SaintsMonthView({
                       >
                         {cell.day}
                       </span>
-                      {primaryName && (
+                      {dayDisplay.featuredName && (
                         <div className="mt-2 flex flex-1 flex-col justify-between gap-1">
                           <p className="line-clamp-2 text-[10px] font-black leading-tight text-[#800000] sm:text-[11px]">
-                            {primaryName}
+                            {dayDisplay.featuredName}
                           </p>
-                          {names.length > 1 && (
+                          {dayDisplay.additionalNames.length + dayDisplay.hiddenAdditionalCount > 0 && (
                             <span className="mt-auto inline-flex w-fit rounded-full bg-[#937022]/10 px-2 py-0.5 text-[8px] font-black uppercase tracking-widest text-[#937022]">
-                              +{names.length - 1} more
+                              +{dayDisplay.additionalNames.length + dayDisplay.hiddenAdditionalCount} more
                             </span>
                           )}
                         </div>
@@ -237,21 +228,21 @@ function SaintsMonthView({
             Featured commemoration
           </p>
           <h3 className="mt-1 text-lg font-black text-gray-900 tracking-tight">
-            {featuredSaintName || 'No commemoration listed'}
+            {selectedDisplay.featuredName || 'No commemoration listed'}
           </h3>
-          {visibleAdditionalSaints.length > 0 && (
+          {selectedDisplay.additionalNames.length > 0 && (
             <div className="mt-4 space-y-2">
               <p className="text-[9px] font-black uppercase tracking-widest text-gray-300">
                 Also commemorated
               </p>
-              {visibleAdditionalSaints.map((name) => (
+              {selectedDisplay.additionalNames.map((name) => (
                 <p key={name} className="rounded-2xl bg-gray-50 px-4 py-3 text-xs font-bold leading-snug text-gray-600">
                   {name}
                 </p>
               ))}
-              {hiddenAdditionalSaintsCount > 0 && (
+              {selectedDisplay.hiddenAdditionalCount > 0 && (
                 <p className="rounded-2xl bg-[#937022]/10 px-4 py-3 text-[10px] font-black uppercase tracking-widest text-[#937022]">
-                  +{hiddenAdditionalSaintsCount} additional commemorations
+                  +{selectedDisplay.hiddenAdditionalCount} additional commemorations
                 </p>
               )}
             </div>
