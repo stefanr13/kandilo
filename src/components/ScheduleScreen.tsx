@@ -7,7 +7,7 @@ import { TRANSLATIONS } from '../translations';
 import FullCalendar from './FullCalendar';
 import { useSaintsForMonth } from '../hooks/useSaintsForMonth';
 import { getSaintLocalizedText } from '../lib/db/saints';
-import { getSaintDayDisplay } from '../lib/db/saintPriority';
+import { getSaintDayDisplay } from '../lib/db/saintDisplay';
 
 export interface ScheduleScreenProps {
   events: Event[];

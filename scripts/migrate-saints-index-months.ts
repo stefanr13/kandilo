@@ -14,6 +14,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import { getSaintPriorityMetadata, type SaintPriorityMetadata } from './saint-priority';
 
 const PROJECT_ID = 'kandilo-2f7a9';
 const DATABASE = '(default)';
@@ -70,6 +71,7 @@ function langMapToFS(m: LangMap): FSMap {
 }
 
 function dayToFS(day: SaintDay): FSMap {
+  const priority = getSaintPriorityMetadata(day.date, day.saints.map((saint) => saint.name));
   return {
     mapValue: {
       fields: {
@@ -79,8 +81,18 @@ function dayToFS(day: SaintDay): FSMap {
             values: day.saints.map((saint) => langMapToFS(saint.name)),
           },
         },
+        ...priorityToFSFields(priority),
       },
     },
+  };
+}
+
+function priorityToFSFields(priority: SaintPriorityMetadata): Record<string, FSValue> {
+  return {
+    primaryName: langMapToFS(priority.primaryName),
+    priorityRank: str(priority.priorityRank),
+    prioritySource: str(priority.prioritySource),
+    priorityTitle: str(priority.priorityTitle),
   };
 }
 
