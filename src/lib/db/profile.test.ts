@@ -1,15 +1,33 @@
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   buildUserProfileRepairPatch,
   hasTaxReceiptAddressDetails,
   isTaxReceiptProfileComplete,
   sanitizeProfileInput,
   sanitizeTaxReceiptProfileInput,
+  updateUserProfile,
 } from './profile';
 
+const firestoreMocks = vi.hoisted(() => ({
+  collection: vi.fn((...segments: unknown[]) => ({ type: 'collection', segments })),
+  doc: vi.fn((...segments: unknown[]) => ({ type: 'doc', segments })),
+  getDoc: vi.fn(),
+  getDocs: vi.fn(),
+  onSnapshot: vi.fn(),
+  serverTimestamp: vi.fn(() => ({ type: 'serverTimestamp' })),
+  setDoc: vi.fn(),
+  updateDoc: vi.fn(),
+  writeBatch: vi.fn(),
+}));
+
+vi.mock('firebase/firestore', () => firestoreMocks);
 vi.mock('../firebase/firestore', () => ({ db: {} }));
 
 describe('profile Firestore input helpers', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
   it('trims and bounds profile fields before fan-out writes', () => {
     const safe = sanitizeProfileInput({
       displayName: '  Ana Member  ',
@@ -217,5 +235,59 @@ describe('profile Firestore input helpers', () => {
         country: 'US',
       },
     })).toBe(false);
+  });
+
+  it('updates non-directory profile fields without writing membership fanout docs', async () => {
+    const batch = {
+      update: vi.fn(),
+      commit: vi.fn().mockResolvedValue(undefined),
+    };
+    firestoreMocks.writeBatch.mockReturnValue(batch);
+    firestoreMocks.getDoc.mockResolvedValue({
+      exists: () => true,
+      data: () => ({
+        displayName: 'Ana Member',
+        ministries: ['Choir'],
+      }),
+    });
+
+    await updateUserProfile('member-1', {
+      displayName: 'Ana Member',
+      preferredLanguage: 'Română',
+      phone: '',
+      ministries: ['Choir'],
+      description: '',
+      showInDirectory: true,
+      taxReceiptLegalName: 'Ana M. Petrov',
+      taxReceiptAddress: {
+        line1: '10 Church St',
+        line2: '',
+        city: 'Chicago',
+        region: 'IL',
+        postalCode: '60601',
+        country: 'US',
+      },
+    });
+
+    expect(firestoreMocks.getDocs).not.toHaveBeenCalled();
+    expect(firestoreMocks.collection).not.toHaveBeenCalled();
+    expect(batch.update).toHaveBeenCalledTimes(1);
+    expect(batch.update.mock.calls[0]?.[1]).toMatchObject({
+      displayName: 'Ana Member',
+      preferredLanguage: 'Română',
+      phone: '',
+      ministries: ['Choir'],
+      description: '',
+      showInDirectory: true,
+      taxReceiptLegalName: 'Ana M. Petrov',
+      taxReceiptAddress: {
+        line1: '10 Church St',
+        city: 'Chicago',
+        region: 'IL',
+        postalCode: '60601',
+        country: 'US',
+      },
+    });
+    expect(batch.commit).toHaveBeenCalledTimes(1);
   });
 });

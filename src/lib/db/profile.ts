@@ -62,6 +62,10 @@ function isValidFcmTokens(value: unknown): boolean {
     && value.every((token) => typeof token === 'string');
 }
 
+function stringArraysEqual(left: string[], right: string[]): boolean {
+  return left.length === right.length && left.every((value, index) => value === right[index]);
+}
+
 function sanitizeTaxReceiptAddress(address?: Partial<TaxReceiptAddress> | null): TaxReceiptAddress {
   return {
     line1: (address?.line1 ?? '').trim(),
@@ -198,6 +202,31 @@ export function sanitizeProfileInput(data: {
   };
 }
 
+function directoryProfileFieldsChanged(
+  current: Record<string, unknown> | null,
+  next: ReturnType<typeof sanitizeProfileInput>
+): boolean {
+  if (!current) {
+    return true;
+  }
+
+  const currentMinistries = Array.isArray(current.ministries)
+    ? current.ministries.filter((value): value is string => typeof value === 'string')
+    : [];
+  const currentDisplayName = typeof current.displayName === 'string' ? current.displayName : '';
+  const currentPhone = typeof current.phone === 'string' ? current.phone : '';
+  const currentDescription = typeof current.description === 'string' ? current.description : '';
+  const currentShowInDirectory = typeof current.showInDirectory === 'boolean'
+    ? current.showInDirectory
+    : true;
+
+  return currentDisplayName !== next.displayName
+    || currentPhone !== next.phone
+    || !stringArraysEqual(currentMinistries, next.ministries)
+    || currentDescription !== next.description
+    || currentShowInDirectory !== next.showInDirectory;
+}
+
 export function buildUserProfileRepairPatch(
   current: Record<string, unknown>,
   data: { displayName: string; photoURL: string | null }
@@ -325,6 +354,12 @@ export async function updateUserProfile(
   const safeData = sanitizeProfileInput(data);
   const batch = writeBatch(db);
   const userRef = doc(db, 'users', uid);
+  const existingProfileSnap = await getDoc(userRef);
+  const shouldUpdateDirectoryProfile = directoryProfileFieldsChanged(
+    existingProfileSnap.exists() ? existingProfileSnap.data() : null,
+    safeData
+  );
+
   batch.update(userRef, {
     displayName: safeData.displayName,
     preferredLanguage: safeData.preferredLanguage,
@@ -336,16 +371,18 @@ export async function updateUserProfile(
     taxReceiptAddress: safeData.taxReceiptAddress,
   });
 
-  const membershipsSnap = await getDocs(collection(db, 'users', uid, 'churchMemberships'));
-  membershipsSnap.docs.forEach((membership) => {
-    batch.update(doc(db, 'churches', membership.id, 'members', uid), {
-      displayName: safeData.displayName,
-      phone: safeData.phone,
-      ministry: safeData.ministries.join(', '),
-      description: safeData.description,
-      showInDirectory: safeData.showInDirectory,
+  if (shouldUpdateDirectoryProfile) {
+    const membershipsSnap = await getDocs(collection(db, 'users', uid, 'churchMemberships'));
+    membershipsSnap.docs.forEach((membership) => {
+      batch.update(doc(db, 'churches', membership.id, 'members', uid), {
+        displayName: safeData.displayName,
+        phone: safeData.phone,
+        ministry: safeData.ministries.join(', '),
+        description: safeData.description,
+        showInDirectory: safeData.showInDirectory,
+      });
     });
-  });
+  }
 
   await batch.commit();
 }
