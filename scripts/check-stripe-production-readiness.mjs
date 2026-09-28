@@ -833,7 +833,13 @@ record(
 );
 
 const functionsEnv = readEnv('functions/.env.production');
-record(functionsEnv !== null, 'functions/.env.production exists');
+record(
+  functionsEnv !== null || ciStaticMode,
+  'functions/.env.production exists',
+  !functionsEnv && ciStaticMode
+    ? 'Skipped in CI static readiness mode; deploy readiness still requires the production APP_URL configuration.'
+    : ''
+);
 if (functionsEnv) {
   record(
     functionsEnv.APP_URL === expectedAppUrl,
