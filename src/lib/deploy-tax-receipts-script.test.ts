@@ -314,7 +314,7 @@ describe('tax receipt deploy helper', () => {
       .toBeLessThan(bootstrapSource.indexOf('const existing = await auth.getUserByEmail(email);'));
     expect(bootstrapSource.indexOf("const churchDoc = await db.collection('churches').doc(churchId).get();"))
       .toBeLessThan(bootstrapSource.indexOf('const created = await auth.createUser({ email, password, displayName });'));
-  });
+  }, 20_000); // Sixteen CLI subprocesses can exceed the unit-test default on CI.
 
   it('rejects mistyped production readiness flags before running checks', () => {
     const result = spawnSync(process.execPath, [readinessScriptPath, '--strict-native-link'], {
