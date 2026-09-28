@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { getSaintIndexForMonth, type SaintIndexDay } from '../lib/db/saints';
 
 /**
@@ -12,7 +12,6 @@ export function useSaintsForMonth(
   enabled: boolean
 ): Record<string, SaintIndexDay> {
   const [saints, setSaints] = useState<Record<string, SaintIndexDay>>({});
-  const cancelRef = useRef(false);
 
   useEffect(() => {
     if (!enabled) {
@@ -20,19 +19,19 @@ export function useSaintsForMonth(
       return;
     }
 
-    cancelRef.current = false;
+    let cancelled = false;
     setSaints({});
 
     getSaintIndexForMonth(year, month)
       .then((data) => {
-        if (!cancelRef.current) setSaints(data);
+        if (!cancelled) setSaints(data);
       })
       .catch((err) => {
         console.warn('useSaintsForMonth: failed to load', err);
       });
 
     return () => {
-      cancelRef.current = true;
+      cancelled = true;
     };
   }, [year, month, enabled]);
 

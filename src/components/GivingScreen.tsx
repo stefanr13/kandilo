@@ -27,7 +27,7 @@ import {
   sendCorrectedTaxReceipt,
   sendTaxReceipt,
 } from '../lib/api/giving';
-import { sendEmailVerificationEmail } from '../lib/api/auth';
+import { firebaseAuthErrorCode, sendAccountEmailVerification } from '../lib/auth';
 import {
   getGivingStatus,
   getTaxReceipt,
@@ -563,7 +563,7 @@ export default function GivingScreen({
     setEmailVerificationSending(true);
     setEmailVerificationMessage('');
     try {
-      const result = await sendEmailVerificationEmail();
+      const result = await sendAccountEmailVerification(currentUser);
       await currentUser.reload().catch(() => undefined);
       setEmailVerificationRefreshKey((current) => current + 1);
       setEmailVerificationMessage(
@@ -572,8 +572,13 @@ export default function GivingScreen({
           : extra.emailVerificationSent
       );
     } catch (error) {
-      console.error('Failed to send email verification:', error);
-      setEmailVerificationMessage(extra.emailVerificationSendFailed);
+      if (firebaseAuthErrorCode(error) === 'auth/too-many-requests') {
+        console.warn('Email verification send rate-limited:', error);
+        setEmailVerificationMessage(extra.emailVerificationStillPending);
+      } else {
+        console.error('Failed to send email verification:', error);
+        setEmailVerificationMessage(extra.emailVerificationSendFailed);
+      }
     } finally {
       setEmailVerificationSending(false);
     }

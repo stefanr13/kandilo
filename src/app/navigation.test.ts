@@ -8,8 +8,10 @@ import {
   getInitialScreen,
   getInitialManagementTab,
   getStripeConnectReturnState,
+  normalizePublicEventSlug,
   parseExternalAppUrl,
   parsePendingInvitationPath,
+  parsePublicEventPath,
   selectEventForScreen,
 } from './navigation';
 import { Event } from '../data/events';
@@ -69,6 +71,14 @@ describe('app navigation', () => {
     expect(parsePendingInvitationPath('/profile')).toBeNull();
   });
 
+  it('parses public event paths only when the slug is production-safe', () => {
+    expect(parsePublicEventPath('/e/serbian-fest-2026')).toEqual({ slug: 'serbian-fest-2026' });
+    expect(parsePublicEventPath('/e/Serbian-Fest-2026')).toEqual({ slug: 'serbian-fest-2026' });
+    expect(parsePublicEventPath('/e/a')).toBeNull();
+    expect(parsePublicEventPath('/e/serbian-fest/extra')).toBeNull();
+    expect(normalizePublicEventSlug('bad slug')).toBeNull();
+  });
+
   it('normalizes current location snapshots for browser routing', () => {
     expect(getCurrentAppLocationSnapshot({ pathname: 'join/invite-123', search: '?x=1' })).toEqual({
       pathname: '/join/invite-123',
@@ -97,8 +107,16 @@ describe('app navigation', () => {
       pathname: '/',
       search: `?stripeConnect=refresh&churchId=church-1&state=${STRIPE_CONNECT_STATE}`,
     });
+    expect(parseExternalAppUrl('kandilo://app/e/serbian-fest-2026')).toEqual({
+      pathname: '/e/serbian-fest-2026',
+      search: '',
+    });
     expect(parseExternalAppUrl('https://app.kandilo.org/join/invite-123')).toEqual({
       pathname: '/join/invite-123',
+      search: '',
+    });
+    expect(parseExternalAppUrl('https://app.kandilo.org/e/serbian-fest-2026')).toEqual({
+      pathname: '/e/serbian-fest-2026',
       search: '',
     });
     expect(parseExternalAppUrl('https://kandilo-2f7a9.firebaseapp.com/?giving=cancel')).toEqual({

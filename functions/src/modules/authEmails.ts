@@ -28,6 +28,19 @@ function actionCodeSettings(mode: 'verify-email' | 'reset-password') {
   };
 }
 
+function isEmailActionRateLimit(error: unknown): boolean {
+  const code =
+    typeof error === 'object'
+      && error !== null
+      && 'code' in error
+      && typeof (error as { code?: unknown }).code === 'string'
+      ? (error as { code: string }).code
+      : '';
+  const message = error instanceof Error ? error.message : '';
+
+  return code === 'auth/too-many-requests' || message.includes('TOO_MANY_ATTEMPTS_TRY_LATER');
+}
+
 export const sendEmailVerificationEmail = onCall(
   { ...replayProtectedCallableOptions, secrets: ['RESEND_API_KEY'] },
   async (request) => {
@@ -43,10 +56,19 @@ export const sendEmailVerificationEmail = onCall(
       return { success: true, emailSent: false, alreadyVerified: true };
     }
 
-    const link = await auth.generateEmailVerificationLink(
-      userRecord.email,
-      actionCodeSettings('verify-email')
-    );
+    let link;
+    try {
+      link = await auth.generateEmailVerificationLink(
+        userRecord.email,
+        actionCodeSettings('verify-email')
+      );
+    } catch (error) {
+      if (isEmailActionRateLimit(error)) {
+        throw new HttpsError('resource-exhausted', 'Please wait before requesting another verification email.');
+      }
+      console.error('Email verification link generation failed:', sanitizedErrorContext(error));
+      throw new HttpsError('internal', 'Verification email could not be sent.');
+    }
     const email = renderEmailVerificationEmail({
       displayName: userRecord.displayName ?? 'there',
       verificationUrl: link,

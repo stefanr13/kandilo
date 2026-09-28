@@ -1,12 +1,7 @@
 import { motion } from 'motion/react';
 import {
-  Book,
   ChevronRight,
-  Church,
   ExternalLink,
-  HeartHandshake,
-  Instagram,
-  MessageCircle,
   Users,
   type LucideIcon,
 } from 'lucide-react';
@@ -30,11 +25,6 @@ export default function MoreScreen({ onOpenProfile, onOpenCommunity, language }:
     onClick?: () => void;
   }> = [
     { label: t.communityDirectory, icon: Users, sub: t.communityDirectorySub, onClick: onOpenCommunity },
-    { label: t.parishHistory, icon: Church, sub: t.parishHistorySub },
-    { label: t.spiritualLibrary, icon: Book, sub: t.spiritualLibrarySub },
-    { label: t.ministries, icon: HeartHandshake, sub: t.ministriesSub },
-    { label: t.followInstagram, icon: Instagram, sub: t.instagramHandle, color: '#E4405F' },
-    { label: t.contactUs, icon: MessageCircle, sub: t.contactUsSub },
   ];
 
   return (

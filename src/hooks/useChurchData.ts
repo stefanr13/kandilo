@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useChurchSubscription } from './useChurchSubscription';
 import {
   subscribeToAllChurchMembersForManagement,
   subscribeToChurchEvents,
@@ -9,6 +9,7 @@ import type { FirestoreMember } from '../lib/db/memberships';
 import type { FirestoreNewsletter } from '../lib/db/newsletters';
 
 interface ChurchData {
+  error: string;
   members: FirestoreMember[];
   events: FirestoreEvent[];
   newsletters: FirestoreNewsletter[];
@@ -23,79 +24,15 @@ interface ChurchDataOptions {
   newsletters?: boolean;
 }
 
-export function useChurchData(
-  churchId: string | null,
-  options: ChurchDataOptions = {}
-): ChurchData {
-  const membersEnabled = options.members ?? true;
-  const eventsEnabled = options.events ?? true;
-  const newslettersEnabled = options.newsletters ?? true;
-  const [members, setMembers] = useState<FirestoreMember[]>([]);
-  const [events, setEvents] = useState<FirestoreEvent[]>([]);
-  const [newsletters, setNewsletters] = useState<FirestoreNewsletter[]>([]);
-  const [membersLoading, setMembersLoading] = useState(true);
-  const [eventsLoading, setEventsLoading] = useState(true);
-  const [newslettersLoading, setNewslettersLoading] = useState(true);
+const subscribeEvents = (churchId: string, next: (events: FirestoreEvent[]) => void, onError: (error: Error) => void) =>
+  subscribeToChurchEvents(churchId, next, { onError });
 
-  useEffect(() => {
-    if (!churchId) {
-      setMembers([]);
-      setEvents([]);
-      setNewsletters([]);
-      setMembersLoading(false);
-      setEventsLoading(false);
-      setNewslettersLoading(false);
-      return;
-    }
-
-    if (!membersEnabled) {
-      setMembers([]);
-      setMembersLoading(false);
-    } else {
-      setMembersLoading(true);
-    }
-
-    if (!eventsEnabled) {
-      setEvents([]);
-      setEventsLoading(false);
-    } else {
-      setEventsLoading(true);
-    }
-
-    if (!newslettersEnabled) {
-      setNewsletters([]);
-      setNewslettersLoading(false);
-    } else {
-      setNewslettersLoading(true);
-    }
-
-    const unsubMembers = membersEnabled
-      ? subscribeToAllChurchMembersForManagement(churchId, (m) => {
-          setMembers(m);
-          setMembersLoading(false);
-        })
-      : undefined;
-
-    const unsubEvents = eventsEnabled
-      ? subscribeToChurchEvents(churchId, (e) => {
-          setEvents(e);
-          setEventsLoading(false);
-        })
-      : undefined;
-
-    const unsubNewsletters = newslettersEnabled
-      ? subscribeToChurchNewslettersForManagement(churchId, (n) => {
-          setNewsletters(n);
-          setNewslettersLoading(false);
-        })
-      : undefined;
-
-    return () => {
-      unsubMembers?.();
-      unsubEvents?.();
-      unsubNewsletters?.();
-    };
-  }, [churchId, membersEnabled, eventsEnabled, newslettersEnabled]);
-
-  return { members, events, newsletters, membersLoading, eventsLoading, newslettersLoading };
+export function useChurchData(churchId: string | null, options: ChurchDataOptions = {}): ChurchData {
+  const members = useChurchSubscription(options.members === false ? null : churchId, subscribeToAllChurchMembersForManagement);
+  const events = useChurchSubscription(options.events === false ? null : churchId, subscribeEvents);
+  const newsletters = useChurchSubscription(options.newsletters === false ? null : churchId, subscribeToChurchNewslettersForManagement);
+  return { members: members.data, events: events.data, newsletters: newsletters.data,
+    membersLoading: members.loading, eventsLoading: events.loading, newslettersLoading: newsletters.loading,
+    error: members.error || events.error || newsletters.error,
+  };
 }

@@ -156,7 +156,7 @@ describe('native link configuration helper', () => {
 
       expect(appleFile.applinks.details[0]).toEqual({
         appID: 'AB12CD34EF.com.kandilo.app',
-        paths: ['/', '/join/*'],
+        paths: ['/', '/join/*', '/e/*'],
       });
       expect(androidFile[0]).toEqual({
         relation: ['delegate_permission/common.handle_all_urls'],

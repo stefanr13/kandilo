@@ -1,4 +1,5 @@
-import { useState, useEffect } from 'react';
+import { useMemo } from 'react';
+import { useChurchSubscription } from './useChurchSubscription';
 import { subscribeToChurchEvents, type FirestoreEvent } from '../lib/db/events';
 import { Event, Category } from '../data/events';
 
@@ -43,6 +44,8 @@ function firestoreEventToUIEvent(e: FirestoreEvent): Event {
     month: monthShort,
     year: start.getFullYear(),
     sortTime: start.getTime(),
+    endSortTime: end.getTime(),
+    calendarId: e.id,
     title: e.title,
     time: formatTime(start),
     endTime: formatTime(end),
@@ -58,29 +61,11 @@ function firestoreEventToUIEvent(e: FirestoreEvent): Event {
   };
 }
 
-export function useEvents(churchId: string | null): { events: Event[]; loading: boolean } {
-  const [events, setEvents] = useState<Event[]>([]);
-  const [loading, setLoading] = useState(true);
+const subscribe = (churchId: string, next: (events: FirestoreEvent[]) => void, onError: (error: Error) => void) =>
+  subscribeToChurchEvents(churchId, next, { publicWindow: true, onError });
 
-  useEffect(() => {
-    if (!churchId) {
-      setEvents([]);
-      setLoading(false);
-      return;
-    }
-
-    setLoading(true);
-    const unsub = subscribeToChurchEvents(
-      churchId,
-      (firestoreEvents) => {
-        setEvents(firestoreEvents.map(firestoreEventToUIEvent));
-        setLoading(false);
-      },
-      { publicWindow: true }
-    );
-
-    return unsub;
-  }, [churchId]);
-
-  return { events, loading };
+export function useEvents(churchId: string | null) {
+  const { data, loading, error } = useChurchSubscription(churchId, subscribe);
+  const events = useMemo(() => data.map(firestoreEventToUIEvent), [data]);
+  return { events, loading, error };
 }

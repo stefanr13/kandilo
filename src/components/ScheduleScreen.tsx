@@ -5,8 +5,8 @@ import { Event, Category } from '../data/events';
 import { Language } from '../types';
 import { TRANSLATIONS } from '../translations';
 import FullCalendar from './FullCalendar';
+import { saveEventToCalendar } from '../lib/eventCalendar';
 import { useSaintsForMonth } from '../hooks/useSaintsForMonth';
-import { getSaintLocalizedText } from '../lib/db/saints';
 import { getSaintDayDisplay } from '../lib/db/saintDisplay';
 
 export interface ScheduleScreenProps {
@@ -247,11 +247,11 @@ function SaintsMonthView({
               )}
             </div>
           )}
-          {selectedNames.length === 0 && listedDays.length > 0 && (
+          {!selectedDisplay.featuredName && listedDays.length > 0 && (
             <div className="mt-5 space-y-2">
               {listedDays.slice(0, 5).map((day) => {
                 const date = new Date(`${day.date}T12:00:00`);
-                const name = getSaintLocalizedText(day.names[0], language, false);
+                const name = getSaintDayDisplay(day, language).featuredName;
                 if (!name) return null;
                 return (
                   <button
@@ -315,7 +315,7 @@ export default function ScheduleScreen({
   const [selectedCategory, setSelectedCategory] = useState<Category | 'All'>('All');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedEvent, setSelectedEvent] = useState<Event | null>(initialSelectedEvent || null);
-  const [showReminderSuccess, setShowReminderSuccess] = useState(false);
+  const [reminderMessage, setReminderMessage] = useState('');
 
   const filterScrollRef = useRef<HTMLDivElement>(null);
   const categories: Category[] = ['Divine Liturgy', 'Vespers & Vigil', 'Feast Day', 'Ministry & Education', 'Community & Social', 'Sacramental'];
@@ -365,9 +365,17 @@ export default function ScheduleScreen({
     ? 'Parish services and activities only. Saints are kept in their own calendar.'
     : t.upcomingSub;
 
-  const handleSetReminder = () => {
-    setShowReminderSuccess(true);
-    setTimeout(() => setShowReminderSuccess(false), 3000);
+  const handleSetReminder = async () => {
+    if (!selectedEvent) return;
+    setReminderMessage('');
+    try {
+      await saveEventToCalendar(selectedEvent);
+      setReminderMessage(t.reminderSet);
+    } catch (error) {
+      if (error instanceof Error && error.name === 'AbortError') return;
+      console.warn('Calendar export failed:', error);
+      setReminderMessage('Unable to export this event. Please try again.');
+    }
   };
 
   /* ── Event detail view ─────────────────────────────────────────────── */
@@ -453,12 +461,13 @@ export default function ScheduleScreen({
             </div>
 
             <button
-              onClick={handleSetReminder}
+              onClick={() => void handleSetReminder()}
               className="w-full py-5 bg-[#800000] text-white rounded-2xl font-black text-xs uppercase tracking-[0.2em] shadow-xl shadow-red-900/20 hover:bg-[#8D1212] transition-all active:scale-95 flex items-center justify-center gap-3"
             >
               <Bell size={18} />
-              {showReminderSuccess ? t.reminderSet : t.setReminder}
+              {t.setReminder}
             </button>
+            {reminderMessage && <p role="status" className="mt-3 text-sm text-gray-600">{reminderMessage}</p>}
           </div>
 
           {/* Desktop sidebar — related events */}

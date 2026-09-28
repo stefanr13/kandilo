@@ -22,6 +22,8 @@ export interface AppTranslations {
     manage: string;
     profileLabel: string;
     settingsAccount: string;
+    forum: string;
+    saints: string;
   };
   home: {
     welcome: string;
@@ -33,6 +35,7 @@ export interface AppTranslations {
     yourParish: string;
     latestAnnouncements: string;
     saintOfDay: string;
+    upcomingSaints: string;
     readLife: string;
     prayer: string;
     candle: string;
@@ -48,6 +51,7 @@ export interface AppTranslations {
     time2h: string;
     time5h: string;
     saintName: string;
+    noSaintData: string;
     saintTitle: string;
     saintDesc: string;
     newsletterExcerpt: string;
@@ -250,6 +254,8 @@ export const TRANSLATIONS: Record<Language, AppTranslations> = {
       manage: 'Manage',
       profileLabel: 'Profile',
       settingsAccount: 'Settings & account',
+      forum: 'Forum',
+      saints: 'Saints',
     },
     home: {
       welcome: 'Welcome,',
@@ -261,6 +267,7 @@ export const TRANSLATIONS: Record<Language, AppTranslations> = {
       yourParish: 'Your Parish',
       latestAnnouncements: 'Latest Announcements',
       saintOfDay: 'Saint of the Day',
+      upcomingSaints: 'Upcoming Saints',
       readLife: 'Read Life of Saint',
       prayer: 'Prayer',
       candle: 'Candle',
@@ -276,6 +283,7 @@ export const TRANSLATIONS: Record<Language, AppTranslations> = {
       time2h: '2 hours ago',
       time5h: '5 hours ago',
       saintName: 'St. John of Damascus',
+      noSaintData: 'Commemorations are not available for this date and language.',
       saintTitle: 'Defender of Icons',
       saintDesc: 'Today we commemorate St. John, who defended the holy icons against the iconoclasts.',
       newsletterExcerpt: 'The Divine Liturgy is the heart of our parish life. It is where we gather as a community to offer thanks and receive the holy mysteries.',
@@ -310,8 +318,8 @@ export const TRANSLATIONS: Record<Language, AppTranslations> = {
       eventDetails: 'Event Details',
       commemoration: 'Commemoration',
       liturgicalNote: 'Liturgical Note',
-      setReminder: 'Set Reminder',
-      reminderSet: 'Reminder Set!',
+      setReminder: 'Add to calendar',
+      reminderSet: 'Open the calendar file to save the event and its reminder.',
       date: 'Date',
       time: 'Time',
       location: 'Location',
@@ -492,6 +500,8 @@ export const TRANSLATIONS: Record<Language, AppTranslations> = {
       manage: 'Upravljaj',
       profileLabel: 'Profil',
       settingsAccount: 'Podešavanja i nalog',
+      forum: 'Forum',
+      saints: 'Svetitelji',
     },
     home: {
       welcome: 'Dobrodošli,',
@@ -503,6 +513,7 @@ export const TRANSLATIONS: Record<Language, AppTranslations> = {
       yourParish: 'Vaša parohija',
       latestAnnouncements: 'Najnovije objave',
       saintOfDay: 'Svetitelj dana',
+      upcomingSaints: 'Predstojeći svetitelji',
       readLife: 'Žitije svetitelja',
       prayer: 'Molitva',
       candle: 'Sveća',
@@ -518,6 +529,7 @@ export const TRANSLATIONS: Record<Language, AppTranslations> = {
       time2h: 'pre 2 sata',
       time5h: 'pre 5 sati',
       saintName: 'Sv. Jovan Damaskin',
+      noSaintData: 'Spomeni svetitelja nisu dostupni za ovaj datum i jezik.',
       saintTitle: 'Branitelj ikona',
       saintDesc: 'Danas proslavljamo Sv. Jovana, koji je branio svete ikone od ikonoboraca.',
       newsletterExcerpt: 'Sveta Liturgija je srce našeg parohijskog života. To je mesto gde se okupljamo kao zajednica da prinesemo blagodarnost i primimo svete tajne.',
@@ -552,8 +564,8 @@ export const TRANSLATIONS: Record<Language, AppTranslations> = {
       eventDetails: 'Detalji događaja',
       commemoration: 'Spomen',
       liturgicalNote: 'Napomena o bogosluženju',
-      setReminder: 'Podsetnik',
-      reminderSet: 'Podsetnik postavljen!',
+      setReminder: 'Dodaj u kalendar',
+      reminderSet: 'Otvorite datoteku kalendara da sačuvate događaj i podsetnik.',
       date: 'Datum',
       time: 'Vreme',
       location: 'Lokacija',
@@ -734,6 +746,8 @@ export const TRANSLATIONS: Record<Language, AppTranslations> = {
       manage: 'Управљај',
       profileLabel: 'Профил',
       settingsAccount: 'Подешавања и налог',
+      forum: 'Форум',
+      saints: 'Светитељи',
     },
     home: {
       welcome: 'Добродошли,',
@@ -745,6 +759,7 @@ export const TRANSLATIONS: Record<Language, AppTranslations> = {
       yourParish: 'Ваша парохија',
       latestAnnouncements: 'Најновије објаве',
       saintOfDay: 'Светитељ дана',
+      upcomingSaints: 'Предстојећи светитељи',
       readLife: 'Житије светитеља',
       prayer: 'Молитва',
       candle: 'Свећа',
@@ -760,6 +775,7 @@ export const TRANSLATIONS: Record<Language, AppTranslations> = {
       time2h: 'пре 2 сата',
       time5h: 'пре 5 сати',
       saintName: 'Св. Јован Дамаскин',
+      noSaintData: 'Спомени светитеља нису доступни за овај датум и језик.',
       saintTitle: 'Бранитељ икона',
       saintDesc: 'Данас прослављамо Св. Јована, који је бранио свете иконе од иконобораца.',
       newsletterExcerpt: 'Света Литургија је срце нашег парохијског живота. То је место где се окупљамо као заједница да принесемо благодарност и примимо свете тајне.',
@@ -794,8 +810,8 @@ export const TRANSLATIONS: Record<Language, AppTranslations> = {
       eventDetails: 'Детаљи догађаја',
       commemoration: 'Спомен',
       liturgicalNote: 'Напомена о богослужењу',
-      setReminder: 'Подсетник',
-      reminderSet: 'Подсетник постављен!',
+      setReminder: 'Додај у календар',
+      reminderSet: 'Отворите датотеку календара да сачувате догађај и подсетник.',
       date: 'Датум',
       time: 'Време',
       location: 'Локација',
@@ -976,6 +992,8 @@ export const TRANSLATIONS: Record<Language, AppTranslations> = {
       manage: 'Управление',
       profileLabel: 'Профиль',
       settingsAccount: 'Настройки и аккаунт',
+      forum: 'Форум',
+      saints: 'Святые',
     },
     home: {
       welcome: 'Добро пожаловать,',
@@ -987,6 +1005,7 @@ export const TRANSLATIONS: Record<Language, AppTranslations> = {
       yourParish: 'Ваш приход',
       latestAnnouncements: 'Последние объявления',
       saintOfDay: 'Святой дня',
+      upcomingSaints: 'Предстоящие святые',
       readLife: 'Житие святого',
       prayer: 'Молитва',
       candle: 'Свеча',
@@ -1002,6 +1021,7 @@ export const TRANSLATIONS: Record<Language, AppTranslations> = {
       time2h: '2 часа назад',
       time5h: '5 часов назад',
       saintName: 'Св. Иоанн Дамаскин',
+      noSaintData: 'Памяти святых недоступны для этой даты и языка.',
       saintTitle: 'Защитник икон',
       saintDesc: 'Сегодня мы вспоминаем св. Иоанна, защищавшего святые иконы от иконоборцев.',
       newsletterExcerpt: 'Божественная литургия — сердце нашей приходской жизни. Здесь мы собираемся как община, чтобы вознести благодарение и причаститься святых тайн.',
@@ -1036,8 +1056,8 @@ export const TRANSLATIONS: Record<Language, AppTranslations> = {
       eventDetails: 'Детали события',
       commemoration: 'Поминовение',
       liturgicalNote: 'Литургическая заметка',
-      setReminder: 'Напомнить',
-      reminderSet: 'Напоминание установлено!',
+      setReminder: 'Добавить в календарь',
+      reminderSet: 'Откройте файл календаря, чтобы сохранить событие и напоминание.',
       date: 'Дата',
       time: 'Время',
       location: 'Место',
@@ -1218,6 +1238,8 @@ export const TRANSLATIONS: Record<Language, AppTranslations> = {
       manage: 'Administrare',
       profileLabel: 'Profil',
       settingsAccount: 'Setări și cont',
+      forum: 'Forum',
+      saints: 'Sfinți',
     },
     home: {
       welcome: 'Bun venit,',
@@ -1229,6 +1251,7 @@ export const TRANSLATIONS: Record<Language, AppTranslations> = {
       yourParish: 'Parohia ta',
       latestAnnouncements: 'Ultimele anunțuri',
       saintOfDay: 'Sfântul zilei',
+      upcomingSaints: 'Sfinți viitori',
       readLife: 'Viața sfântului',
       prayer: 'Rugăciune',
       candle: 'Lumânare',
@@ -1244,6 +1267,7 @@ export const TRANSLATIONS: Record<Language, AppTranslations> = {
       time2h: 'acum 2 ore',
       time5h: 'acum 5 ore',
       saintName: 'Sf. Ioan Damaschin',
+      noSaintData: 'Pomenirile nu sunt disponibile pentru această dată și limbă.',
       saintTitle: 'Apărătorul icoanelor',
       saintDesc: 'Astăzi îl pomenim pe Sf. Ioan, care a apărat sfintele icoane împotriva iconoclaștilor.',
       newsletterExcerpt: 'Sfânta Liturghie este inima vieții noastre parohiale. Este locul unde ne adunăm ca comunitate pentru a aduce mulțumire și a primi sfintele taine.',
@@ -1278,8 +1302,8 @@ export const TRANSLATIONS: Record<Language, AppTranslations> = {
       eventDetails: 'Detalii eveniment',
       commemoration: 'Pomenire',
       liturgicalNote: 'Notă liturgică',
-      setReminder: 'Setează memento',
-      reminderSet: 'Memento setat!',
+      setReminder: 'Adaugă în calendar',
+      reminderSet: 'Deschide fișierul calendarului pentru a salva evenimentul și mementoul.',
       date: 'Data',
       time: 'Ora',
       location: 'Locație',
@@ -1460,6 +1484,8 @@ export const TRANSLATIONS: Record<Language, AppTranslations> = {
       manage: 'Управління',
       profileLabel: 'Профіль',
       settingsAccount: 'Налаштування та акаунт',
+      forum: 'Форум',
+      saints: 'Святі',
     },
     home: {
       welcome: 'Ласкаво просимо,',
@@ -1471,6 +1497,7 @@ export const TRANSLATIONS: Record<Language, AppTranslations> = {
       yourParish: 'Ваша парафія',
       latestAnnouncements: 'Останні оголошення',
       saintOfDay: 'Святий дня',
+      upcomingSaints: 'Найближчі святі',
       readLife: 'Житіє святого',
       prayer: 'Молитва',
       candle: 'Свічка',
@@ -1486,6 +1513,7 @@ export const TRANSLATIONS: Record<Language, AppTranslations> = {
       time2h: '2 години тому',
       time5h: '5 годин тому',
       saintName: 'Св. Іоан Дамаскін',
+      noSaintData: 'Спомини святих недоступні для цієї дати й мови.',
       saintTitle: 'Захисник ікон',
       saintDesc: 'Сьогодні ми вшановуємо пам\'ять св. Іоана, який захищав святі ікони від іконоборців.',
       newsletterExcerpt: 'Божественна літургія — це серце нашого парафіяльного життя. Це місце, де ми збираємося як громада, щоб піднести подяку та причаститися святих таїн.',
@@ -1520,8 +1548,8 @@ export const TRANSLATIONS: Record<Language, AppTranslations> = {
       eventDetails: 'Деталі події',
       commemoration: 'Поминання',
       liturgicalNote: 'Літургійна замітка',
-      setReminder: 'Нагадати',
-      reminderSet: 'Нагадування встановлено!',
+      setReminder: 'Додати до календаря',
+      reminderSet: 'Відкрийте файл календаря, щоб зберегти подію та нагадування.',
       date: 'Дата',
       time: 'Час',
       location: 'Місце',

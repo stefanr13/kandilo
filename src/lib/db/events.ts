@@ -59,7 +59,7 @@ export function mapFirestoreEvent(d: { id: string; data: () => Record<string, un
 export function subscribeToChurchEvents(
   churchId: string,
   callback: (events: FirestoreEvent[]) => void,
-  options: { publicWindow?: boolean } = {}
+  options: { publicWindow?: boolean; onError?: (error: Error) => void } = {}
 ): () => void {
   const constraints: QueryConstraint[] = [
     where('churchId', '==', churchId),
@@ -87,7 +87,7 @@ export function subscribeToChurchEvents(
   return onSnapshot(q, (snap) => {
     const events: FirestoreEvent[] = snap.docs.map(mapFirestoreEvent);
     callback(events);
-  });
+  }, options.onError);
 }
 
 export async function createEvent(

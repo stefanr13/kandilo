@@ -2,6 +2,7 @@ import {
   Bell,
   BookOpen,
   Calendar,
+  CalendarCog,
   LayoutDashboard,
   PenLine,
   QrCode,
@@ -28,6 +29,7 @@ const TABS: Array<{
   { id: 'dashboard', icon: LayoutDashboard },
   { id: 'members', icon: Users },
   { id: 'events', icon: Calendar },
+  { id: 'eventPlatform', icon: CalendarCog },
   { id: 'posts', icon: PenLine },
   { id: 'newsletters', icon: BookOpen },
   { id: 'notifications', icon: Bell },
@@ -64,8 +66,8 @@ export default function ManagementSidebar({
         {tabs.map((tab) => (
           <button
             key={tab.id}
-            title={labels[tab.id]}
-            aria-label={labels[tab.id]}
+            title={labels[tab.id] ?? 'Event Setup'}
+            aria-label={labels[tab.id] ?? 'Event Setup'}
             onClick={(event) => {
               event.stopPropagation();
               onTabChange(tab.id);
@@ -78,7 +80,7 @@ export default function ManagementSidebar({
           >
             <tab.icon size={20} className="flex-shrink-0" />
             <span className="hidden xl:block truncate text-[11px] font-black uppercase tracking-widest">
-              {labels[tab.id]}
+              {labels[tab.id] ?? 'Event Setup'}
             </span>
           </button>
         ))}

@@ -17,7 +17,7 @@ import { ChurchSummary } from '../domain/church';
 import { Language, ChurchMembership } from '../types';
 import { TRANSLATIONS } from '../translations';
 import { getExtraCopy } from '../localization/extra';
-import { getFirebaseAuthError, signOut } from '../lib/auth';
+import { getFirebaseAuthError, signOut, deleteAccount } from '../lib/auth';
 import { joinChurch } from '../lib/api/churches';
 import { leaveChurch, listAllChurches } from '../lib/db/churches';
 import { EMPTY_TAX_RECEIPT_ADDRESS, getUserProfile, updateUserAvatar, updateUserLanguage, updateUserProfile } from '../lib/db/profile';
@@ -53,6 +53,11 @@ export default function ProfileScreen({ onBack, language, onLanguageChange, user
   const [avatarUrl, setAvatarUrl] = useState(user?.photoURL ?? '');
   const [profileMessage, setProfileMessage] = useState('');
   const [passwordSaving, setPasswordSaving] = useState(false);
+  const [notificationSaving, setNotificationSaving] = useState(false);
+  const [deleteConfirm, setDeleteConfirm] = useState(false);
+  const [deletePassword, setDeletePassword] = useState('');
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState('');
   const [passwordError, setPasswordError] = useState('');
 
   useEffect(() => {
@@ -794,6 +799,48 @@ export default function ProfileScreen({ onBack, language, onLanguageChange, user
               <Lock size={14} />
               {t.changePassword}
             </button>
+
+            <button type="button" disabled={notificationSaving || !user?.emailVerified}
+              onClick={() => {
+                if (!user) return;
+                setNotificationSaving(true);
+                void import('../lib/notifications').then(({ requestNotificationPermission }) => requestNotificationPermission(user.uid))
+                  .then((enabled) => setProfileMessage(enabled ? 'Notifications enabled on this device.' : 'Notifications are not enabled. Check this device’s notification settings.'))
+                  .catch(() => setProfileMessage('Unable to enable notifications. Please try again.'))
+                  .finally(() => setNotificationSaving(false));
+              }}
+              className="w-full rounded-3xl border border-gray-200 bg-white px-5 py-4 text-sm font-bold disabled:opacity-50">
+              {notificationSaving ? 'Enabling notifications…' : 'Enable notifications'}
+            </button>
+
+            <button type="button" onClick={() => { setDeleteConfirm((value) => !value); setDeleteError(''); }}
+              aria-expanded={deleteConfirm} disabled={deleting}
+              className="w-full rounded-3xl border border-red-200 px-5 py-4 text-sm font-bold text-red-700">
+              Delete account
+            </button>
+            {deleteConfirm && (
+              <div className="rounded-2xl border border-red-200 bg-red-50 p-5 text-sm text-red-950">
+                <p>Your account, profile, parish memberships, and avatar will be deleted. Donation and official receipt records are retained as described in the privacy policy. This cannot be undone.</p>
+                {canChangePassword && <label className="mt-4 block font-bold">Current password
+                  <input type="password" autoComplete="current-password" value={deletePassword} onChange={(event) => setDeletePassword(event.target.value)}
+                    className="mt-2 w-full rounded-xl border border-red-200 bg-white p-3" disabled={deleting} />
+                </label>}
+                {deleteError && <p role="alert" className="mt-3">{deleteError}</p>}
+                <div className="mt-4 flex gap-3">
+                  <button type="button" disabled={deleting || (canChangePassword && !deletePassword)}
+                    onClick={() => {
+                      setDeleting(true); setDeleteError('');
+                      void deleteAccount(deletePassword).catch((error) => {
+                        const code = typeof error?.code === 'string' ? error.code : '';
+                        setDeleteError(code ? getFirebaseAuthError(code, language) : 'Unable to delete your account. Please try again.');
+                      }).finally(() => setDeleting(false));
+                    }} className="rounded-xl bg-red-700 px-4 py-3 font-bold text-white disabled:opacity-50">
+                    {deleting ? 'Deleting…' : 'Permanently delete account'}
+                  </button>
+                  <button type="button" disabled={deleting} onClick={() => { setDeleteConfirm(false); setDeletePassword(''); }} className="px-3 py-2 font-bold">Cancel</button>
+                </div>
+              </div>
+            )}
 
             <button
               onClick={signOut}

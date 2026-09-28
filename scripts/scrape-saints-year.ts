@@ -82,13 +82,14 @@ function cleanHtml(input: string): string {
     .replace(/\n[ \t]+/g, '\n')
     .replace(/[ \t]{2,}/g, ' ')
     .replace(/\n{3,}/g, '\n\n')
-    .trim();
+    .trim()
+    .replace(/^\+{3}\s*/, '');
 }
 
 function parseSaints(html: string): ParsedSaint[] {
   const saints: ParsedSaint[] = [];
   const re =
-    /<span class="normalan_naslov">\s*<h1>([\s\S]*?)<\/h1>\s*<\/span>\s*<div[^>]*class="indexopis"[^>]*>([\s\S]*?)<\/div>/g;
+    /<span class="(?:normalan_naslov|crveno_slovo)">\s*<h1>([\s\S]*?)<\/h1>\s*<\/span>\s*<div[^>]*class="indexopis"[^>]*>([\s\S]*?)<\/div>/g;
 
   for (const match of html.matchAll(re)) {
     const descriptionMatch = match[2].match(/<span class="tekst_opis"[^>]*>([\s\S]*?)<\/span>/);
@@ -205,17 +206,16 @@ async function scrapeDay(date: Date): Promise<{ day: SaintDay; counts: Record<st
   }
 
   const saints: SaintDetail[] = [];
-  for (let i = 0; i < maxSaints; i++) {
-    const name = buildEmptyMap();
-    const description = buildEmptyMap();
-
-    for (const langKey of ['sr_cyr', 'sr_lat', 'en', 'ru', 'uk', 'ro'] as const) {
-      const saint = parsedByLang.get(langKey)?.[i];
-      name[langKey] = saint?.name ?? '';
-      description[langKey] = saint?.description ?? '';
+  // Each source has its own ordering and commemorations. Array positions are
+  // not cross-language identities; retain independent entries for each language.
+  for (const langKey of ['sr_cyr', 'sr_lat', 'en', 'ru', 'uk', 'ro'] as const) {
+    for (const saint of parsedByLang.get(langKey) ?? []) {
+      const name = buildEmptyMap();
+      const description = buildEmptyMap();
+      name[langKey] = saint.name;
+      description[langKey] = saint.description;
+      saints.push({ name, description });
     }
-
-    saints.push({ name, description });
   }
 
   return {

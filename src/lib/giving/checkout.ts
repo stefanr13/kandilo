@@ -11,6 +11,9 @@ export interface PendingGivingCheckoutState {
   anonymous?: boolean;
   givingId?: string;
   sessionId?: string;
+  eventId?: string;
+  eventPortalId?: string;
+  eventCampaignId?: string;
 }
 
 export function assertStripeCheckoutUrl(url: string, errorMessage: string): string {

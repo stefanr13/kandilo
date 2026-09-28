@@ -78,29 +78,19 @@ function monthDayFromDate(date: string): string {
   return date.slice(5, 10);
 }
 
-function findMatchingName(names: LangMap[], override: SaintPriorityOverride): LangMap | null {
-  if (!override.match) return null;
-  return names.find((name) => (
-    Object.values(name).some((value) => typeof value === 'string' && override.match?.test(value))
-  )) ?? null;
-}
-
 export function getSaintPriorityMetadata(date: string, names: LangMap[]): SaintPriorityMetadata {
   const override = PRIORITY_OVERRIDES.find((entry) => entry.monthDay === monthDayFromDate(date));
-  if (override) {
-    return {
-      primaryName: findMatchingName(names, override) ?? fallbackLangMap(override.title),
-      priorityRank: override.rank,
-      prioritySource: 'curated_serbian_orthodox',
-      priorityTitle: override.title,
-    };
+  const primaryName = fallbackLangMap('');
+  for (const key of ['sr_cyr', 'sr_lat', 'en', 'ru', 'uk', 'ro'] as const) {
+    const localized = names.map((name) => name[key]).filter((value): value is string => Boolean(value));
+    // Choose the day's label within this language, never from the same array
+    // position in another language. Missing translations remain explicitly empty.
+    primaryName[key] = localized.find((name) => override?.match?.test(name)) ?? localized[0] ?? '';
   }
-
-  const firstName = names[0] ?? fallbackLangMap('');
   return {
-    primaryName: firstName,
-    priorityRank: 'source_primary',
-    prioritySource: 'source_order',
-    priorityTitle: firstName.en || firstName.sr_lat || firstName.sr_cyr || '',
+    primaryName,
+    priorityRank: override?.rank ?? 'source_primary',
+    prioritySource: override ? 'curated_serbian_orthodox' : 'source_order',
+    priorityTitle: override?.title ?? primaryName.en ?? '',
   };
 }

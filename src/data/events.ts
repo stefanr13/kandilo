@@ -7,6 +7,8 @@ export interface Event {
   month: string;
   year?: number;
   sortTime?: number;
+  endSortTime?: number;
+  calendarId?: string;
   title: string;
   time: string;
   endTime: string;

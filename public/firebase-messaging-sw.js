@@ -4,6 +4,25 @@
 // Do not hardcode the config here; GitHub secret scanning flags Google API keys.
 // ─────────────────────────────────────────────────────────────────────────────
 
+// Only route to a validated local public-event path.
+self.addEventListener('notificationclick', (event) => {
+  event.stopImmediatePropagation();
+  event.notification.close();
+  const data = event.notification.data?.FCM_MSG?.data ?? event.notification.data;
+  const slug = data?.eventSlug;
+  const path = typeof slug === 'string' && /^[a-z0-9][a-z0-9-]{1,62}[a-z0-9]$/.test(slug) ? `/e/${slug}` : '/';
+  const url = new URL(path, self.location.origin).href;
+  event.waitUntil(clients.matchAll({ type: 'window', includeUncontrolled: true }).then(async (windows) => {
+    for (const client of windows) {
+      if (new URL(client.url).origin === self.location.origin && 'navigate' in client) {
+        await client.navigate(url);
+        return client.focus();
+      }
+    }
+    return clients.openWindow(url);
+  }));
+});
+
 importScripts('https://www.gstatic.com/firebasejs/12.13.0/firebase-app-compat.js');
 importScripts('https://www.gstatic.com/firebasejs/12.13.0/firebase-messaging-compat.js');
 importScripts('/firebase-messaging-sw-config.js');
@@ -17,7 +36,9 @@ if (firebaseConfig) {
 
   // Handle background push notifications (app not in focus)
   messaging.onBackgroundMessage((payload) => {
-    const { title, body, icon } = payload.notification ?? {};
+    // Firebase already displays notification payloads in the background.
+    if (payload.notification) return;
+    const { title, body, icon } = payload.data ?? {};
 
     self.registration.showNotification(title ?? 'Kandilo', {
       body: body ?? '',
@@ -29,20 +50,3 @@ if (firebaseConfig) {
 } else {
   console.warn('Firebase Messaging service worker config is not generated. Background web push is disabled.');
 }
-
-// Handle notification click — open the app
-self.addEventListener('notificationclick', (event) => {
-  event.notification.close();
-  event.waitUntil(
-    clients.matchAll({ type: 'window', includeUncontrolled: true }).then((windowClients) => {
-      for (const client of windowClients) {
-        if (client.url && 'focus' in client) {
-          return client.focus();
-        }
-      }
-      if (clients.openWindow) {
-        return clients.openWindow('/');
-      }
-    })
-  );
-});

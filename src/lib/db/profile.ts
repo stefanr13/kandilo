@@ -418,13 +418,7 @@ export async function updateUserLanguage(uid: string, language: Language): Promi
   }
 }
 
-export async function addFcmToken(uid: string, token: string): Promise<void> {
-  const ref = doc(db, 'users', uid);
-  const snap = await getDoc(ref);
-  if (!snap.exists()) return;
-  const existing: string[] = snap.data().fcmTokens ?? [];
-  if (existing.includes(token)) return;
-  // Keep only the most recent tokens to avoid unbounded growth and stale token errors
-  const updated = [...existing, token].slice(-MAX_FCM_TOKENS);
-  await updateDoc(ref, { fcmTokens: updated });
+export async function addFcmToken(_uid: string, token: string): Promise<void> {
+  const { callFunction } = await import('../api/client');
+  await callFunction('registerPushToken', { token });
 }

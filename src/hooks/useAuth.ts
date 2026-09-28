@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { onAuthStateChanged, type User } from 'firebase/auth';
+import { onIdTokenChanged, type User } from 'firebase/auth';
 import { auth } from '../lib/firebase/auth';
 
 interface AuthState {
@@ -9,15 +9,9 @@ interface AuthState {
 }
 
 export function useAuth(): AuthState {
-  const [user, setUser] = useState<User | null>(null);
+  const [{ user }, setAuthUser] = useState<{ user: User | null }>({ user: null });
   const [loading, setLoading] = useState(true);
   const [isSuperAdmin, setIsSuperAdmin] = useState(false);
-
-  const checkSuperAdminClaim = useCallback(async (u: User) => {
-    // Force-refresh to pick up custom claims set after sign-in
-    const token = await u.getIdTokenResult(false);
-    setIsSuperAdmin(token.claims['superAdmin'] === true);
-  }, []);
 
   const repairUserProfile = useCallback(async (u: User) => {
     if (u.isAnonymous || !u.emailVerified) {
@@ -33,16 +27,24 @@ export function useAuth(): AuthState {
   }, []);
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (u) => {
-      setUser(u);
+    let revision = 0;
+    let currentUid: string | null = null;
+    const unsubscribe = onIdTokenChanged(auth, async (u) => {
+      const currentRevision = ++revision;
+      setAuthUser({ user: u });
+      if (currentUid !== (u?.uid ?? null)) setIsSuperAdmin(false);
+      currentUid = u?.uid ?? null;
       if (u) {
         const [claimResult, profileResult] = await Promise.allSettled([
-          checkSuperAdminClaim(u),
+          u.getIdTokenResult(false),
           repairUserProfile(u),
         ]);
+        if (currentRevision !== revision) return;
         if (claimResult.status === 'rejected') {
           console.error('Failed to read auth claims:', claimResult.reason);
           setIsSuperAdmin(false);
+        } else {
+          setIsSuperAdmin(claimResult.value.claims['superAdmin'] === true);
         }
         if (profileResult.status === 'rejected') {
           console.error('Failed to repair user profile:', profileResult.reason);
@@ -52,8 +54,8 @@ export function useAuth(): AuthState {
       }
       setLoading(false);
     });
-    return unsubscribe;
-  }, [checkSuperAdminClaim, repairUserProfile]);
+    return () => { revision++; unsubscribe(); };
+  }, [repairUserProfile]);
 
   return { user, loading, isSuperAdmin };
 }

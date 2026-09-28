@@ -12,6 +12,9 @@ interface AppShellProps {
   churches: Church[];
   activeChurch: Church | null;
   onChurchChange: (church: Church) => void;
+  verificationBanner?: ReactNode;
+  activeEventTitle?: string | null;
+  onReturnToEvent?: () => void;
   children: ReactNode;
 }
 
@@ -25,6 +28,9 @@ export default function AppShell({
   churches,
   activeChurch,
   onChurchChange,
+  verificationBanner,
+  activeEventTitle,
+  onReturnToEvent,
   children,
 }: AppShellProps) {
   const showChrome = !CHROMELESS_SCREENS.has(currentScreen);
@@ -41,6 +47,9 @@ export default function AppShell({
           language={language}
           userRole={userRole}
           onProfileClick={() => onScreenChange('profile')}
+          userChurches={churches}
+          activeChurch={activeChurch}
+          onChurchChange={onChurchChange}
         />
       )}
 
@@ -56,8 +65,12 @@ export default function AppShell({
             activeChurch={activeChurch ?? undefined}
             onChurchChange={onChurchChange}
             language={language}
+            activeEventTitle={activeEventTitle}
+            onReturnToEvent={onReturnToEvent}
           />
         )}
+
+        {verificationBanner}
 
         <main className="flex-1 min-h-0 overflow-y-auto scrollbar-hide relative bg-[#F9F9F9]">
           {children}

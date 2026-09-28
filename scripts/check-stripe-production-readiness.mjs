@@ -2279,8 +2279,9 @@ const appTestSource = readText('src/App.test.ts') ?? '';
 const givingScreenSource = readText('src/components/GivingScreen.tsx') ?? '';
 const givingScreenTestSource = readText('src/components/GivingScreen.test.ts') ?? '';
 const navigationSource = readText('src/app/navigation.ts') ?? '';
-const emailVerificationGateSource = readText('src/components/app/EmailVerificationGate.tsx') ?? '';
-const emailVerificationGateTestSource = readText('src/components/app/EmailVerificationGate.test.ts') ?? '';
+const emailVerificationBannerSource = readText('src/components/app/EmailVerificationBanner.tsx') ?? '';
+const emailVerificationBannerTestSource = readText('src/components/app/EmailVerificationBanner.test.ts') ?? '';
+const emailVerificationThrottleSource = readText('src/lib/emailVerificationThrottle.ts') ?? '';
 const authenticatedAppSource = readText('src/components/app/AuthenticatedApp.tsx') ?? '';
 const authenticatedAppTestSource = readText('src/components/app/AuthenticatedApp.test.ts') ?? '';
 const appScreenContentSource = readText('src/components/app/AppScreenContent.tsx') ?? '';
@@ -2761,7 +2762,7 @@ record(
   ])
   && includesEvery(givingScreenSource, [
     "const TAX_RECEIPT_DONOR_PROFILE_INCOMPLETE_CODE = 'tax_receipt_donor_profile_incomplete';",
-    "import { sendEmailVerificationEmail } from '../lib/api/auth';",
+    "sendAccountEmailVerification } from '../lib/auth';",
     'updateUserTaxReceiptProfile',
     'const [taxReceiptProfileForm, setTaxReceiptProfileForm] = useState<',
     'const handleSaveTaxReceiptProfile = async () => {',
@@ -2772,7 +2773,7 @@ record(
     'const [emailVerificationChecking, setEmailVerificationChecking] = useState(false);',
     'const [emailVerificationRefreshKey, setEmailVerificationRefreshKey] = useState(0);',
     'const handleSendEmailVerification = async () => {',
-    'await sendEmailVerificationEmail();',
+    'const result = await sendAccountEmailVerification(currentUser);',
     'const handleCheckEmailVerification = async () => {',
     'await currentUser.reload();',
     'setEmailVerificationRefreshKey((current) => current + 1);',
@@ -2823,35 +2824,40 @@ record(
     'emailVerificationCheckAction',
     'emailVerificationStillPending',
   ])
-  && includesEvery(appSource, [
-    "const EmailVerificationGate = lazy(() => import('./components/app/EmailVerificationGate'));",
-    'const [emailVerificationRefreshKey, setEmailVerificationRefreshKey] = useState(0);',
-    'if (!user.isAnonymous && user.emailVerified !== true) {',
-    'key={`${user.uid}:${emailVerificationRefreshKey}`}',
-    'onVerified={() => setEmailVerificationRefreshKey((current) => current + 1)}',
+  && !appSource.includes('EmailVerificationGate')
+  && !appSource.includes('if (!user.isAnonymous && user.emailVerified !== true) {')
+  && includesEvery(authenticatedAppSource, [
+    "import EmailVerificationBanner from './EmailVerificationBanner';",
+    '<EmailVerificationBanner user={user} language={language} />',
+    'verificationBanner=',
   ])
-  && includesEvery(emailVerificationGateSource, [
-    "import { sendEmailVerificationEmail } from '../../lib/api/auth';",
-    "import { signOut } from '../../lib/auth';",
-    'const handleSendVerification = async () => {',
-    'const result = await sendEmailVerificationEmail();',
+  && includesEvery(emailVerificationBannerSource, [
+    "sendAccountEmailVerification } from '../../lib/auth';",
+    'getEmailVerificationSendState',
+    'markEmailVerificationEmailSent',
+    "void sendVerification('auto');",
+    'const result = await sendAccountEmailVerification(user);',
     'await user.reload().catch(() => undefined);',
-    'const handleCheckVerification = async () => {',
-    'await user.reload();',
-    'confirmIfVerified(user.emailVerified === true);',
-    'onVerified();',
-    'void signOut()',
-    't.emailVerificationBody',
+    "window.addEventListener('focus', handleFocus);",
+    'emailVerificationBannerTitle',
+    'emailVerificationBannerSendAgain',
+  ])
+  && includesEvery(emailVerificationThrottleSource, [
+    'EMAIL_VERIFICATION_RESEND_COOLDOWN_MS',
+    'const RESEND_LIMIT = 3;',
+    'const RESEND_WINDOW_MS = 60 * 60 * 1000;',
   ])
   && givingScreenTestSource.includes('lets donors save private legal receipt details inline before Stripe checkout')
   && givingScreenTestSource.includes('shows missing donor receipt profile guidance beside receipt-history send actions')
   && givingScreenTestSource.includes('requires saved receipt details before Stripe checkout when receipt issuance is ready')
   && givingScreenTestSource.includes('requires verified email before Stripe checkout and receipt self-service')
   && givingScreenTestSource.includes('keeps existing receipt resends available while blocking new issuance until receipt details are saved')
-  && appTestSource.includes('keeps unverified email accounts out of Firestore-backed app screens')
-  && emailVerificationGateTestSource.includes('lets signed-in users resend and refresh account email verification before app data loads')
+  && appTestSource.includes('does not gate app routing on email verification')
+  && emailVerificationBannerTestSource.includes('auto-sends verification email and throttles manual resends without blocking app usage')
   && includesEvery(localizationSource, [
-    'Kandilo requires a verified account email before opening parish data, invitations, donations, and official tax receipt tools.',
+    'Waiting for email verification',
+    'We sent a verification link to your account email. You can keep using Kandilo while you verify.',
+    'Send again',
     'Save your legal name and mailing address before checkout so an official receipt can be emailed after donation.',
     'Legal name, address line 1, city, state/province, postal code, and country are required.',
     'Save your legal receipt details before continuing to Stripe so your official receipt can be emailed immediately after donation.',
@@ -2868,10 +2874,11 @@ record(
   && projectDetailsSource.includes('Official receipt issuance now fails closed until the donor private profile has a legal receipt name and complete mailing address')
   && projectDetailsSource.includes("New official receipt issuance requires the donor's verified Firebase Auth email")
   && projectDetailsSource.includes('Auto-issue and manual single/annual send attempts that fail this verified-email guard persist only safe retry state')
-  && projectDetailsSource.includes('App routing now holds unverified signed-in accounts on an email-verification gate before loading invitation acceptance or Firestore-backed parish screens')
+  && projectDetailsSource.includes('App routing no longer blocks unverified signed-in accounts from opening the web or mobile app')
+  && projectDetailsSource.includes('rate-limits "Send again" through client-side cooldown plus the backend callable limit')
+  && projectDetailsSource.includes('Member content and directory contact details require verified email and active parish membership; public discovery remains available before verification')
   && projectDetailsSource.includes('Donor checkout and donor receipt self-service also preflight unverified Auth email in the Giving UI')
   && projectDetailsSource.includes('provide an explicit check-again action after the donor opens the verification link')
-  && projectDetailsSource.includes('avoid Firestore receipt/profile reads that rules will deny while the account is still unverified')
   && projectDetailsSource.includes('requires the donor to save legal name/address details inline before Stripe Checkout')
   && projectDetailsSource.includes('payment review step mirrors the same checkout prerequisite prompts and action label')
   && projectDetailsSource.includes('The same profile gate now runs inside the Checkout callable before Stripe is initialized or any `giving` / `givingPaymentMetadata` records are written')
@@ -2883,21 +2890,22 @@ record(
   && productionChecklistSource.includes('Official receipt issuance now fails closed until the donor private profile has a legal receipt name and complete mailing address')
   && productionChecklistSource.includes("new official receipt issuance requires the donor's verified Firebase Auth email")
   && productionChecklistSource.includes('Auto-issue and manual single/annual send attempts that fail this verified-email guard should persist only safe retry state')
-  && productionChecklistSource.includes('Confirm app routing holds unverified signed-in accounts on the email-verification gate before loading invitation acceptance or Firestore-backed parish screens')
+  && productionChecklistSource.includes('Confirm app routing lets unverified signed-in accounts open the web and mobile app')
+  && productionChecklistSource.includes('rate-limits "Send again" with the client cooldown plus the backend callable limit')
   && productionChecklistSource.includes('donor checkout details step requires donors to save those private receipt fields inline before Stripe Checkout')
   && productionChecklistSource.includes('donor payment review step mirrors the checkout prerequisite prompts and action label')
   && productionChecklistSource.includes('the backend Checkout callable enforces the same profile gate before Stripe initialization and before writing `giving` / `givingPaymentMetadata` records')
   && productionChecklistSource.includes('Confirm donor Giving blocks checkout and donor self-service receipt actions for unverified accounts before calling Stripe/receipt callables')
   && productionChecklistSource.includes('shows resend-verification guidance plus a check-again action after the donor opens the email link')
-  && productionChecklistSource.includes('avoids denied receipt/profile Firestore reads while the account is unverified')
   && productionChecklistSource.includes('donor receipt-history rows with `taxReceiptError=\'tax_receipt_donor_profile_incomplete\'` show `Receipt profile needed` beside the existing private-profile prompt only while the current private receipt profile is incomplete/loading')
   && productionChecklistSource.includes('return to the normal available state and suppress stale donor-profile warning copy after the donor saves those private details')
   && productionChecklistSource.includes('Manual receipt-manager single-send attempts that fail on the backend missing-profile guard persist the same safe retryable row state')
   && productionChecklistSource.includes('donor receipt-history new-issuance actions use the same profile gate while preserving resends of already-issued stored receipts')
   && emailStandardSource.includes('New official receipt issuance also requires a verified Firebase Auth email for the donor')
   && emailStandardSource.includes('Auto-issue and manual single/annual send attempts that hit this verified-email guard persist only safe retry state')
-  && emailStandardSource.includes('App routing blocks unverified signed-in accounts before invitation acceptance or Firestore-backed parish screens')
-  && emailStandardSource.includes('the donor UI blocks Checkout/self-service receipt sends for unverified Auth, offers branded verification email resend, and lets donors check verification again after opening the email link')
+  && emailStandardSource.includes('App routing lets unverified signed-in accounts open the web and mobile app with a waiting-for-verification banner')
+  && emailStandardSource.includes('rate-limits "Send again"')
+  && emailStandardSource.includes('the donor UI still blocks Checkout/self-service receipt sends for unverified Auth, offers branded verification email resend, and lets donors check verification again after opening the email link')
   && localizationSource.includes('Ask the donor to verify their account email, and confirm the donation amount before retrying.')
   && includesEvery(sharedSecuritySource, [
     'export async function getPrimaryVerifiedEmailsForUids',
@@ -5651,7 +5659,7 @@ function firestoreReceiptPrivacyRulesReady(firestoreRules) {
     'match /taxReceiptEvents/{taxReceiptEventId}',
     'allow read: if false;',
   ])
-    && userProfileRulesSource.includes('allow read: if isVerifiedNonAnonymous() && isOwner(userId);')
+    && userProfileRulesSource.includes('allow read: if isSignedInNonAnonymous() && isOwner(userId);')
     && !userProfileRulesSource.includes('isSuperAdmin()')
     && givingRulesSource.includes('resource.data.anonymous == false')
     && givingRulesSource.includes('resource.data.churchReceiptVisible == true')

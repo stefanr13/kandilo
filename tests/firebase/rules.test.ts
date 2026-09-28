@@ -231,8 +231,9 @@ afterAll(async () => {
 });
 
 describe('Firestore rules', () => {
-  it('protects user profiles behind verified non-anonymous ownership', async () => {
+  it('protects user profiles behind signed-in non-anonymous ownership', async () => {
     const ownerDb = dbFor(verifiedContext('member-1', 'member@example.com'));
+    const unverifiedOwnerDb = dbFor(unverifiedContext('member-1', 'member@example.com'));
     const otherDb = dbFor(verifiedContext('member-2', 'member2@example.com'));
     const guestDb = dbFor(anonymousContext());
     const superAdminDb = dbFor(verifiedContext('super-1', 'super@example.com', { superAdmin: true }));
@@ -242,6 +243,7 @@ describe('Firestore rules', () => {
     const ownerRef = doc(ownerDb, 'users/member-1');
 
     await assertSucceeds(getDoc(ownerRef));
+    await assertSucceeds(getDoc(doc(unverifiedOwnerDb, 'users/member-1')));
     await assertFails(getDoc(doc(otherDb, 'users/member-1')));
     await assertFails(getDoc(doc(guestDb, 'users/member-1')));
     await assertFails(getDoc(doc(superAdminDb, 'users/member-1')));
@@ -251,6 +253,12 @@ describe('Firestore rules', () => {
       updateDoc(ownerRef, {
         displayName: 'Updated Member',
         preferredLanguage: 'Română',
+      })
+    );
+    await assertSucceeds(
+      updateDoc(doc(unverifiedOwnerDb, 'users/member-1'), {
+        displayName: 'Updated Unverified Member',
+        preferredLanguage: 'English',
       })
     );
     await assertSucceeds(
@@ -312,6 +320,25 @@ describe('Firestore rules', () => {
       ...ACTIVE_CHURCH,
       name: 'Direct Client Create',
     }));
+  });
+
+  it('allows public discovery queries for active churches only', async () => {
+    await testEnv.withSecurityRulesDisabled(async (context) => {
+      const db = dbFor(context);
+      await setDoc(doc(db, 'churches/inactive-church'), {
+        ...ACTIVE_CHURCH,
+        name: 'Inactive Parish',
+        isActive: false,
+      });
+    });
+
+    const publicDb = dbFor(unauthenticatedContext());
+    await assertSucceeds(getDocs(query(
+      collection(publicDb, 'churches'),
+      where('isActive', '==', true),
+      limit(100)
+    )));
+    await assertFails(getDoc(doc(publicDb, 'churches/inactive-church')));
   });
 
   it('keeps membership reads and updates scoped by role', async () => {
@@ -386,8 +413,32 @@ describe('Firestore rules', () => {
     });
     await assertFails(directSelfJoinBatch.commit());
 
-    await assertSucceeds(deleteDoc(doc(memberDb, `churches/${CHURCH_ID}/members/member-1`)));
-    await assertSucceeds(deleteDoc(doc(memberDb, `users/member-1/churchMemberships/${CHURCH_ID}`)));
+    await assertFails(deleteDoc(doc(memberDb, `churches/${CHURCH_ID}/members/member-1`)));
+    await assertFails(deleteDoc(doc(memberDb, `users/member-1/churchMemberships/${CHURCH_ID}`)));
+    const leave = writeBatch(memberDb);
+    leave.delete(doc(memberDb, `churches/${CHURCH_ID}/members/member-1`));
+    leave.delete(doc(memberDb, `users/member-1/churchMemberships/${CHURCH_ID}`));
+    await assertSucceeds(leave.commit());
+  });
+
+  it('preserves suspended memberships and prevents unverified directory access', async () => {
+    const unverified = dbFor(unverifiedContext('member-1', 'member@example.com'));
+    await assertFails(getDoc(doc(unverified, `churches/${CHURCH_ID}/members/admin-1`)));
+    await testEnv.withSecurityRulesDisabled(async (context) => {
+      await setDoc(doc(context.firestore(), 'newsletters/verification-policy'), { churchId: CHURCH_ID, status: 'published' });
+    });
+    await assertFails(getDoc(doc(unverified, 'newsletters/verification-policy')));
+    await testEnv.withSecurityRulesDisabled(async (context) => {
+      await updateDoc(doc(dbFor(context), `churches/${CHURCH_ID}/members/member-1`), { status: 'suspended' });
+      await updateDoc(doc(dbFor(context), `users/member-1/churchMemberships/${CHURCH_ID}`), { status: 'suspended' });
+    });
+    const member = dbFor(verifiedContext('member-1', 'member@example.com'));
+    await assertFails(deleteDoc(doc(member, `churches/${CHURCH_ID}/members/member-1`)));
+    await assertFails(deleteDoc(doc(member, `users/member-1/churchMemberships/${CHURCH_ID}`)));
+    const leave = writeBatch(member);
+    leave.delete(doc(member, `churches/${CHURCH_ID}/members/member-1`));
+    leave.delete(doc(member, `users/member-1/churchMemberships/${CHURCH_ID}`));
+    await assertFails(leave.commit());
   });
 
   it('enforces invitation and giving read/write boundaries', async () => {
@@ -1247,6 +1298,277 @@ describe('Firestore rules', () => {
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
       publishedAt: null,
+    }));
+  });
+
+  it('protects public event platform docs and keeps ticket private data backend-only', async () => {
+    await testEnv.withSecurityRulesDisabled(async (context) => {
+      const adminDb = dbFor(context);
+      await setDoc(doc(adminDb, 'eventPortals/serbian-fest'), {
+        churchId: CHURCH_ID,
+        organizationId: CHURCH_ID,
+        organizationType: 'church',
+        title: 'Serbian Fest',
+        slug: 'serbian-fest',
+        status: 'published',
+        startsAt: Timestamp.fromDate(new Date('2026-06-01T12:00:00Z')),
+        endsAt: Timestamp.fromDate(new Date('2026-06-01T23:00:00Z')),
+        venueName: 'Parish Hall',
+        venueAddress: '123 Main Street',
+        heroImageURL: '',
+        description: 'Food, music, and parish fellowship.',
+        modules: ['tickets', 'schedule', 'info'],
+        focusEnabled: true,
+        focusStartsAt: null,
+        focusEndsAt: null,
+        ticketsEnabled: true,
+        gateScanningEnabled: true,
+        reEntryEnabled: true,
+        foodDrinkEnabled: false,
+        foodOrderingEnabled: false,
+        campaignsEnabled: false,
+        setupChecklist: {
+          basics: true,
+          tickets: false,
+          schedule: false,
+          foodDrink: false,
+          campaigns: false,
+          staff: false,
+          payments: false,
+        },
+      });
+      await setDoc(doc(adminDb, 'eventPortals/public-uid-leak'), {
+        churchId: CHURCH_ID,
+        organizationId: CHURCH_ID,
+        organizationType: 'church',
+        title: 'UID Leak',
+        slug: 'public-uid-leak',
+        status: 'published',
+        startsAt: Timestamp.fromDate(new Date('2026-06-01T12:00:00Z')),
+        endsAt: Timestamp.fromDate(new Date('2026-06-01T23:00:00Z')),
+        venueName: 'Parish Hall',
+        venueAddress: '123 Main Street',
+        heroImageURL: '',
+        description: 'This row should not be public because it exposes staff ids.',
+        modules: ['schedule', 'info'],
+        focusEnabled: false,
+        focusStartsAt: null,
+        focusEndsAt: null,
+        ticketsEnabled: false,
+        gateScanningEnabled: false,
+        reEntryEnabled: true,
+        foodDrinkEnabled: false,
+        foodOrderingEnabled: false,
+        campaignsEnabled: false,
+        setupChecklist: {
+          basics: true,
+          tickets: false,
+          schedule: false,
+          foodDrink: false,
+          campaigns: false,
+          staff: false,
+          payments: false,
+        },
+        createdBy: 'admin-1',
+      });
+      await setDoc(doc(adminDb, 'eventPortals/event-draft'), {
+        churchId: CHURCH_ID,
+        organizationId: CHURCH_ID,
+        organizationType: 'church',
+        title: 'Draft',
+        slug: 'draft',
+        status: 'draft',
+        startsAt: Timestamp.fromDate(new Date('2026-06-01T12:00:00Z')),
+        endsAt: Timestamp.fromDate(new Date('2026-06-01T23:00:00Z')),
+        focusEnabled: false,
+      });
+      await setDoc(doc(adminDb, 'eventTicketPrivate/ticket-1'), {
+        eventId: 'serbian-fest',
+        buyerEmail: 'guest@example.com',
+        signedLookupToken: 'private-token',
+      });
+      await setDoc(doc(adminDb, 'eventTicketScans/scan-1'), {
+        eventId: 'serbian-fest',
+        ticketId: 'ticket-1',
+        result: 'accepted',
+      });
+      await setDoc(doc(adminDb, 'eventAnnouncements/announcement-1'), {
+        eventId: 'serbian-fest',
+        churchId: CHURCH_ID,
+        title: 'Weather alert',
+        body: 'Please take shelter in the tents.',
+        priority: 'urgent',
+        channels: ['inApp'],
+        status: 'sent',
+        sentAt: Timestamp.fromDate(new Date('2026-06-01T14:00:00Z')),
+        sentByName: 'Event Admin',
+      });
+      await setDoc(doc(adminDb, 'eventAnnouncements/announcement-private-delivery'), {
+        eventId: 'serbian-fest',
+        churchId: CHURCH_ID,
+        title: 'Delivery leak',
+        body: 'This row contains delivery internals.',
+        priority: 'info',
+        channels: ['inApp', 'email'],
+        status: 'sent',
+        sentAt: Timestamp.fromDate(new Date('2026-06-01T14:05:00Z')),
+        sentByName: 'Event Admin',
+        sentBy: 'admin-1',
+        deliveryStats: { emailRecipientCount: 10 },
+      });
+      await setDoc(doc(adminDb, 'eventAnnouncementDelivery/announcement-1'), {
+        eventId: 'serbian-fest',
+        churchId: CHURCH_ID,
+        sentBy: 'admin-1',
+        deliveryStats: { emailRecipientCount: 10 },
+      });
+      await setDoc(doc(adminDb, 'eventTicketTiers/tier-active'), {
+        eventId: 'serbian-fest',
+        name: 'Admission',
+        description: 'General admission',
+        priceCents: 1000,
+        currency: 'CAD',
+        capacity: null,
+        perOrderLimit: 8,
+        saleStartsAt: null,
+        saleEndsAt: null,
+        active: true,
+      });
+      await setDoc(doc(adminDb, 'eventTicketTiers/tier-inactive'), {
+        eventId: 'serbian-fest',
+        name: 'Hidden Admission',
+        description: 'Unpublished price',
+        priceCents: 1000,
+        currency: 'CAD',
+        capacity: null,
+        perOrderLimit: 8,
+        saleStartsAt: null,
+        saleEndsAt: null,
+        active: false,
+      });
+      await setDoc(doc(adminDb, 'eventMenuItems/menu-private-notes'), {
+        eventId: 'serbian-fest',
+        category: 'Food',
+        name: 'Cevapi',
+        description: 'Plate',
+        priceCents: 1200,
+        currency: 'CAD',
+        available: true,
+        soldOut: false,
+        maxPerOrder: 10,
+        inventoryMode: 'unlimited',
+        quantityAvailable: null,
+        quantitySold: 0,
+        sortOrder: 0,
+        prepNotes: 'Private kitchen note',
+      });
+      await setDoc(doc(adminDb, 'eventMenuItems/menu-public'), {
+        eventId: 'serbian-fest',
+        churchId: CHURCH_ID,
+        category: 'Food',
+        name: 'Cevapi',
+        description: 'Plate',
+        priceCents: 1200,
+        currency: 'CAD',
+        available: true,
+        soldOut: false,
+        maxPerOrder: 10,
+        inventoryMode: 'tracked',
+        quantityAvailable: 25,
+        quantitySold: 3,
+        sortOrder: 0,
+      });
+      await setDoc(doc(adminDb, 'eventMenuItems/menu-sold-out'), {
+        eventId: 'serbian-fest',
+        churchId: CHURCH_ID,
+        category: 'Drink',
+        name: 'Knjaz Miloš',
+        description: 'Sparkling water',
+        priceCents: 300,
+        currency: 'CAD',
+        available: true,
+        soldOut: true,
+        maxPerOrder: 10,
+        inventoryMode: 'unlimited',
+        quantityAvailable: null,
+        quantitySold: 0,
+        sortOrder: 1,
+      });
+      await setDoc(doc(adminDb, 'eventOrders/order-1'), {
+        eventId: 'serbian-fest',
+        churchId: CHURCH_ID,
+        orderCode: 'ABC123',
+        customerName: 'Guest',
+        customerEmail: 'guest@example.com',
+        customerPhone: '',
+        items: [{ menuItemId: 'menu-public', name: 'Cevapi', quantity: 1, unitPriceCents: 1200, lineTotalCents: 1200 }],
+        totalCents: 1200,
+        status: 'submitted',
+        createdAt: Timestamp.fromDate(new Date('2026-06-01T14:10:00Z')),
+      });
+      await setDoc(doc(adminDb, 'eventOrderPrivate/order-1'), {
+        eventId: 'serbian-fest',
+        customerEmail: 'guest@example.com',
+      });
+    });
+
+    const publicDb = dbFor(unauthenticatedContext());
+    const memberDb = dbFor(verifiedContext('member-1', 'member@example.com'));
+    const adminDb = dbFor(verifiedContext('admin-1', 'admin@example.com'));
+
+    await assertSucceeds(getDoc(doc(publicDb, 'eventPortals/serbian-fest')));
+    await assertFails(getDoc(doc(publicDb, 'eventPortals/public-uid-leak')));
+    await assertSucceeds(getDoc(doc(publicDb, 'eventAnnouncements/announcement-1')));
+    await assertFails(getDoc(doc(publicDb, 'eventAnnouncements/announcement-private-delivery')));
+    await assertFails(getDoc(doc(publicDb, 'eventAnnouncementDelivery/announcement-1')));
+    await assertFails(getDoc(doc(adminDb, 'eventAnnouncementDelivery/announcement-1')));
+    await assertSucceeds(getDoc(doc(publicDb, 'eventTicketTiers/tier-active')));
+    await assertFails(getDoc(doc(publicDb, 'eventTicketTiers/tier-inactive')));
+    await assertSucceeds(getDoc(doc(publicDb, 'eventMenuItems/menu-public')));
+    await assertSucceeds(getDoc(doc(publicDb, 'eventMenuItems/menu-sold-out')));
+    await assertFails(getDoc(doc(publicDb, 'eventMenuItems/menu-private-notes')));
+    await assertFails(getDoc(doc(publicDb, 'eventPortals/event-draft')));
+    await assertFails(getDoc(doc(publicDb, 'eventTicketPrivate/ticket-1')));
+    await assertFails(getDoc(doc(memberDb, 'eventTicketPrivate/ticket-1')));
+    await assertFails(getDoc(doc(publicDb, 'eventOrders/order-1')));
+    await assertSucceeds(getDoc(doc(adminDb, 'eventOrders/order-1')));
+    await assertFails(getDoc(doc(adminDb, 'eventOrderPrivate/order-1')));
+    await assertFails(setDoc(doc(adminDb, 'eventOrders/order-forged'), {
+      eventId: 'serbian-fest',
+      status: 'submitted',
+    }));
+    await assertSucceeds(getDoc(doc(adminDb, 'eventTicketScans/scan-1')));
+    await assertFails(setDoc(doc(adminDb, 'eventTicketScans/scan-2'), {
+      eventId: 'serbian-fest',
+      ticketId: 'ticket-1',
+      result: 'accepted',
+    }));
+    await assertFails(setDoc(doc(adminDb, 'eventAnnouncements/admin-forged'), {
+      eventId: 'serbian-fest',
+      churchId: CHURCH_ID,
+      title: 'Forged',
+      body: 'No direct writes.',
+      status: 'sent',
+    }));
+    await assertFails(setDoc(doc(memberDb, 'eventPortals/member-created'), {
+      churchId: CHURCH_ID,
+      organizationId: CHURCH_ID,
+      organizationType: 'church',
+      title: 'Member Event',
+      slug: 'member-event',
+      status: 'draft',
+      startsAt: Timestamp.fromDate(new Date('2026-06-01T12:00:00Z')),
+      endsAt: Timestamp.fromDate(new Date('2026-06-01T23:00:00Z')),
+    }));
+    await assertFails(setDoc(doc(adminDb, 'eventPortals/admin-created'), {
+      churchId: CHURCH_ID,
+      organizationId: CHURCH_ID,
+      organizationType: 'church',
+      title: 'Admin Event',
+      slug: 'admin-event',
+      status: 'draft',
+      startsAt: Timestamp.fromDate(new Date('2026-06-01T12:00:00Z')),
+      endsAt: Timestamp.fromDate(new Date('2026-06-01T23:00:00Z')),
     }));
   });
 });

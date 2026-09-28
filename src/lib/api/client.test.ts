@@ -25,6 +25,14 @@ const DONATION_AND_RECEIPT_REPLAY_PROTECTED_FUNCTIONS = [
   'createChurchStripeConnectAccountAsSuperAdmin',
   'createChurchStripeConnectOnboardingLink',
 ] as const;
+const EVENT_REPLAY_PROTECTED_FUNCTIONS = [
+  'saveEventPortalSetup',
+  'upsertEventMenuItem',
+  'deleteEventMenuItem',
+  'submitEventFoodOrder',
+  'updateEventFoodOrderStatus',
+  'sendEventAnnouncement',
+] as const;
 
 function createCallableMock(data: unknown) {
   const callable = vi.fn().mockResolvedValue({ data });
@@ -108,6 +116,21 @@ describe('callFunction', () => {
 
   it('uses limited-use App Check tokens for every donation and receipt callable', async () => {
     for (const functionName of DONATION_AND_RECEIPT_REPLAY_PROTECTED_FUNCTIONS) {
+      const callable = createCallableMock({ ok: functionName });
+      httpsCallableMock.mockReset();
+      httpsCallableMock.mockReturnValue(callable);
+
+      await expect(callFunction(functionName, { marker: functionName })).resolves.toEqual({ ok: functionName });
+
+      expect(httpsCallableMock).toHaveBeenCalledWith(functions, functionName, {
+        limitedUseAppCheckTokens: true,
+      });
+      expect(callable).toHaveBeenCalledWith({ marker: functionName });
+    }
+  });
+
+  it('uses limited-use App Check tokens for every event platform write callable', async () => {
+    for (const functionName of EVENT_REPLAY_PROTECTED_FUNCTIONS) {
       const callable = createCallableMock({ ok: functionName });
       httpsCallableMock.mockReset();
       httpsCallableMock.mockReturnValue(callable);

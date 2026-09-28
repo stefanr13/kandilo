@@ -100,7 +100,8 @@ export async function deleteNewsletter(newsletterId: string): Promise<void> {
 
 export function subscribeToChurchNewsletters(
   churchId: string,
-  callback: (newsletters: FirestoreNewsletter[]) => void
+  callback: (newsletters: FirestoreNewsletter[]) => void,
+  onError?: (error: Error) => void
 ): () => void {
   const q = query(
     collection(db, 'newsletters'),
@@ -111,12 +112,13 @@ export function subscribeToChurchNewsletters(
   );
   return onSnapshot(q, (snap) => {
     callback(snap.docs.map(mapFirestoreNewsletter));
-  });
+  }, onError);
 }
 
 export function subscribeToChurchNewslettersForManagement(
   churchId: string,
-  callback: (newsletters: FirestoreNewsletter[]) => void
+  callback: (newsletters: FirestoreNewsletter[]) => void,
+  onError?: (error: Error) => void
 ): () => void {
   const q = query(
     collection(db, 'newsletters'),
@@ -125,7 +127,7 @@ export function subscribeToChurchNewslettersForManagement(
   );
   return onSnapshot(q, (snap) => {
     callback(snap.docs.map(mapFirestoreNewsletter));
-  });
+  }, onError);
 }
 
 export function mapFirestoreNewsletter(d: { id: string; data: () => Record<string, unknown> }): FirestoreNewsletter {

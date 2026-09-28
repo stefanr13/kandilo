@@ -1,18 +1,20 @@
 import { useState, useMemo, useRef, useEffect } from 'react';
 import { ChevronLeft, ChevronRight, Clock, MapPin, ArrowLeft, Calendar } from 'lucide-react';
-import { motion } from 'motion/react';
 import { Event, Category } from '../data/events';
 import { Language } from '../types';
 import { useSaintsForMonth } from '../hooks/useSaintsForMonth';
-import { getSaintLocalizedText, getSaintIndexForMonth } from '../lib/db/saints';
+import { getSaintIndexForMonth } from '../lib/db/saints';
+import { getSaintDayDisplay } from '../lib/db/saintDisplay';
 import { getExtraCopy } from '../localization/extra';
 
 export interface FullCalendarProps {
   events: Event[];
-  onClose: () => void;
+  onClose?: () => void;
   onSelectEvent: (event: Event) => void;
   language?: Language;
   showSaintDays?: boolean;
+  isEmbedded?: boolean;
+  selectedCategory?: Category | 'All';
 }
 
 const LOCALES: Record<Language, string> = {
@@ -30,15 +32,19 @@ export default function FullCalendar({
   onSelectEvent,
   language = 'English',
   showSaintDays = false,
+  isEmbedded = false,
+  selectedCategory: selectedCategoryProp = 'All',
 }: FullCalendarProps) {
   const [currentDate, setCurrentDate] = useState(() => {
     const d = new Date();
     return new Date(d.getFullYear(), d.getMonth(), 1);
   });
   const [selectedDay, setSelectedDay] = useState<number | null>(new Date().getDate());
-  const [selectedCategory, setSelectedCategory] = useState<Category | 'All'>('All');
+  const [internalCategory, setInternalCategory] = useState<Category | 'All'>('All');
   const copy = getExtraCopy(language).fullCalendar;
   const locale = LOCALES[language] ?? undefined;
+
+  const activeCategory = isEmbedded ? selectedCategoryProp : internalCategory;
 
   const saintsForMonth = useSaintsForMonth(
     currentDate.getFullYear(),
@@ -108,7 +114,7 @@ export default function FullCalendar({
   const getEventsForDay = (day: number) => {
     return events.filter(e => {
       const matchesDay = parseInt(e.date) === day && e.month === currentMonthShort;
-      const matchesCategory = selectedCategory === 'All' || e.category === selectedCategory;
+      const matchesCategory = activeCategory === 'All' || e.category === activeCategory;
       return matchesDay && matchesCategory;
     });
   };
@@ -117,75 +123,77 @@ export default function FullCalendar({
   const prevMonth = () => setCurrentDate(new Date(currentDate.setMonth(currentDate.getMonth() - 1)));
 
   return (
-    <motion.div 
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, y: 20 }}
-      className="absolute inset-0 bg-white z-[60] flex flex-col"
+    <div
+      className={isEmbedded ? "w-full flex flex-col bg-white rounded-3xl" : "absolute inset-0 bg-white z-[60] flex flex-col"}
     >
       {/* Header */}
-      <div className="px-6 lg:px-10 pb-4 flex items-center justify-between border-b border-gray-50 bg-white sticky top-0 z-10" style={{ paddingTop: 'calc(env(safe-area-inset-top) + 1.25rem)' }}>
-        <button 
-          onClick={onClose}
-          className="w-10 h-10 flex items-center justify-center text-gray-900 hover:bg-gray-50 rounded-full transition-colors"
-        >
-          <ArrowLeft size={24} />
-        </button>
-        <h2 className="text-lg font-black text-gray-900 uppercase tracking-[0.2em]">{copy.title}</h2>
-        <div className="w-10"></div>
-      </div>
+      {!isEmbedded && onClose && (
+        <div className="px-6 lg:px-10 pb-4 flex items-center justify-between border-b border-gray-50 bg-white sticky top-0 z-10" style={{ paddingTop: 'calc(env(safe-area-inset-top) + 1.25rem)' }}>
+          <button
+            onClick={onClose}
+            className="w-10 h-10 flex items-center justify-center text-gray-900 hover:bg-gray-50 rounded-full transition-colors"
+            title="Go Back"
+          >
+            <ArrowLeft size={24} />
+          </button>
+          <h2 className="text-lg font-black text-gray-900 uppercase tracking-[0.2em]">{copy.title}</h2>
+          <div className="w-10"></div>
+        </div>
+      )}
 
       <div className="flex-1 overflow-y-auto scrollbar-hide">
-        {/* Filters Section */}
-        <div className="px-6 pt-6 space-y-4 lg:w-full lg:max-w-7xl lg:mx-auto lg:px-10">
-          <div className="flex justify-between items-center">
-            <span className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em]">{copy.filters}</span>
-          </div>
+        {/* Filters Section (Hide if embedded in parent dashboard containing its own filters) */}
+        {!isEmbedded && (
+          <div className="px-6 pt-6 space-y-4 lg:w-full lg:max-w-7xl lg:mx-auto lg:px-10">
+            <div className="flex justify-between items-center">
+              <span className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em]">{copy.filters}</span>
+            </div>
 
-          {/* Category Filter */}
-          <div 
-            ref={filterScrollRef}
-            className="overflow-x-auto scrollbar-hide flex gap-2 pb-2 cursor-grab active:cursor-grabbing"
-          >
-            <button 
-              onClick={() => setSelectedCategory('All')}
-              className={`px-4 py-2 rounded-full text-[9px] font-bold whitespace-nowrap transition-all uppercase tracking-widest ${
-                selectedCategory === 'All' ? 'bg-gray-900 text-white shadow-lg' : 'bg-white text-gray-400 border border-gray-100'
-              }`}
+            {/* Category Filter */}
+            <div
+              ref={filterScrollRef}
+              className="overflow-x-auto scrollbar-hide flex gap-2 pb-2 cursor-grab active:cursor-grabbing"
             >
-              {copy.all}
-            </button>
-            {categories.map(cat => (
               <button
-                key={cat}
-                onClick={() => setSelectedCategory(cat)}
+                onClick={() => setInternalCategory('All')}
                 className={`px-4 py-2 rounded-full text-[9px] font-bold whitespace-nowrap transition-all uppercase tracking-widest ${
-                  selectedCategory === cat ? 'bg-[#800000] text-white shadow-lg' : 'bg-white text-gray-400 border border-gray-100'
+                  activeCategory === 'All' ? 'bg-gray-900 text-white shadow-lg' : 'bg-white text-gray-400 border border-gray-100'
                 }`}
               >
-                {cat}
+                {copy.all}
               </button>
-            ))}
+              {categories.map(cat => (
+                <button
+                  key={cat}
+                  onClick={() => setInternalCategory(cat)}
+                  className={`px-4 py-2 rounded-full text-[9px] font-bold whitespace-nowrap transition-all uppercase tracking-widest ${
+                    activeCategory === cat ? 'bg-[#800000] text-white shadow-lg' : 'bg-white text-gray-400 border border-gray-100'
+                  }`}
+                >
+                  {cat}
+                </button>
+              ))}
+            </div>
           </div>
-        </div>
+        )}
 
         {/* Month Selector */}
-        <div className="px-6 py-6 flex items-center justify-between lg:w-full lg:max-w-7xl lg:mx-auto lg:px-10">
-          <h3 className="text-2xl font-black text-gray-900 tracking-tighter">
+        <div className={isEmbedded ? "px-2 py-4 flex items-center justify-between" : "px-6 py-6 flex items-center justify-between lg:w-full lg:max-w-7xl lg:mx-auto lg:px-10"}>
+          <h3 className="text-xl xl:text-2xl font-black text-gray-900 tracking-tighter">
             {monthName} <span className="text-gray-300">{year}</span>
           </h3>
           <div className="flex gap-2">
-            <button onClick={prevMonth} className="p-2 hover:bg-gray-50 rounded-xl transition-colors text-gray-400">
-              <ChevronLeft size={20} />
+            <button onClick={prevMonth} className="p-1.5 hover:bg-gray-50 rounded-xl transition-colors text-gray-400" title="Previous Month">
+              <ChevronLeft size={18} />
             </button>
-            <button onClick={nextMonth} className="p-2 hover:bg-gray-50 rounded-xl transition-colors text-gray-400">
-              <ChevronRight size={20} />
+            <button onClick={nextMonth} className="p-1.5 hover:bg-gray-50 rounded-xl transition-colors text-gray-400" title="Next Month">
+              <ChevronRight size={18} />
             </button>
           </div>
         </div>
 
         {/* Calendar Grid */}
-        <div className="px-4 lg:px-10 lg:w-full lg:max-w-7xl lg:mx-auto lg:grid lg:grid-cols-[minmax(0,1fr)_360px] lg:gap-8 lg:items-start">
+        <div className={isEmbedded ? "grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_360px] gap-6 md:items-start" : "px-4 lg:px-10 lg:w-full lg:max-w-7xl lg:mx-auto lg:grid lg:grid-cols-[minmax(0,1fr)_360px] lg:gap-8 lg:items-start"}>
           <div>
             <div className="grid grid-cols-7 mb-2">
               {weekDays.map((d, index) => (
@@ -209,7 +217,7 @@ export default function FullCalendar({
                 const dd = String(d.day).padStart(2, '0');
                 const dateKey = d.day ? `${currentDate.getFullYear()}-${mm}-${dd}` : null;
                 const daySaints = dateKey ? saintsForMonth[dateKey] : null;
-                const primarySaintName = getSaintLocalizedText(daySaints?.names[0], language, false) || null;
+                const primarySaintName = getSaintDayDisplay(daySaints, language).featuredName;
 
                 return (
                   <div
@@ -238,11 +246,17 @@ export default function FullCalendar({
                       ))}
                     </div>
 
-                    {/* Saint name */}
+                    {/* Saint name with premium non-cutoff tooltip hover expansion */}
                     {showSaintDays && primarySaintName && (
-                      <p className="px-1 mt-1 text-[7px] lg:text-[9px] font-bold text-[#800000] leading-tight line-clamp-2 opacity-80">
-                        {primarySaintName}
-                      </p>
+                      <div className="relative group/saint">
+                        <p className="px-1 mt-1 text-[7px] lg:text-[8px] xl:text-[9px] font-bold text-[#800000] leading-tight line-clamp-2 md:line-clamp-3 opacity-80 group-hover/saint:opacity-100 transition-opacity">
+                          {primarySaintName}
+                        </p>
+                        {/* Elegant custom HTML tooltip on hover */}
+                        <div className="absolute left-0 bottom-full mb-1 hidden group-hover/saint:block bg-gray-950 text-white text-[9px] font-semibold px-2.5 py-1.5 rounded-xl shadow-xl border border-white/10 z-40 w-44 md:w-52 pointer-events-none transition-all">
+                          {primarySaintName}
+                        </div>
+                      </div>
                     )}
                   </div>
                 );
@@ -251,7 +265,7 @@ export default function FullCalendar({
           </div>
 
           {/* Selected Day Schedule */}
-          <div className="px-2 py-8 lg:px-0 lg:py-0 lg:sticky lg:top-6">
+          <div className={isEmbedded ? "py-4" : "px-2 py-8 lg:px-0 lg:py-0 lg:sticky lg:top-6"}>
             <div className="flex items-center justify-between mb-6">
             <h4 className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em]">
               {selectedDay
@@ -268,7 +282,7 @@ export default function FullCalendar({
                   key={event.id}
                   onClick={() => {
                     onSelectEvent(event);
-                    onClose();
+                    if (onClose) onClose();
                   }}
                   className="w-full bg-white border border-gray-100 rounded-[28px] p-5 flex items-center gap-5 shadow-sm hover:shadow-md transition-all group text-left"
                 >
@@ -307,6 +321,6 @@ export default function FullCalendar({
           </div>
         </div>
       </div>
-    </motion.div>
+    </div>
   );
 }

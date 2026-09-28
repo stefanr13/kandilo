@@ -1,9 +1,10 @@
 import * as v1 from 'firebase-functions/v1';
 import { db } from '../shared/firebase';
+import { getStorage } from 'firebase-admin/storage';
 import { AUTH_TRIGGER_REGION } from '../shared/regions';
 import { normalizeEmail } from '../shared/security';
 
-export const onUserDeleted = v1.region(AUTH_TRIGGER_REGION).auth.user().onDelete(async (user) => {
+export const onUserDeleted = v1.runWith({ failurePolicy: true }).region(AUTH_TRIGGER_REGION).auth.user().onDelete(async (user) => {
   const uid = user.uid;
   const email = user.email ? normalizeEmail(user.email) : null;
 
@@ -13,19 +14,13 @@ export const onUserDeleted = v1.region(AUTH_TRIGGER_REGION).auth.user().onDelete
     .collection('churchMemberships')
     .get();
 
-  const sentInvitesSnap = await db
-    .collection('invitations')
-    .where('invitedBy', '==', uid)
-    .where('status', '==', 'pending')
-    .get();
-
-  const receivedInvitesSnap = email
-    ? await db
-        .collection('invitations')
-        .where('inviteeEmail', '==', email)
-        .where('status', '==', 'pending')
-        .get()
-    : null;
+  const [sentInvitesSnap, receivedInvitesSnap, tokenOwners, memberDocs, customerOrders] = await Promise.all([
+    db.collection('invitations').where('invitedBy', '==', uid).get(),
+    email ? db.collection('invitations').where('inviteeEmail', '==', email).get() : null,
+    db.collection('pushTokenOwners').where('userId', '==', uid).get(),
+    db.collectionGroup('members').where('userId', '==', uid).get(),
+    db.collection('eventOrderPrivate').where('requestUserId', '==', uid).get(),
+  ]);
 
   const BATCH_LIMIT = 490;
   let currentBatch = db.batch();
@@ -53,20 +48,25 @@ export const onUserDeleted = v1.region(AUTH_TRIGGER_REGION).auth.user().onDelete
   currentBatch.delete(db.collection('users').doc(uid));
   opCount++;
 
-  for (const inviteDoc of sentInvitesSnap.docs) {
-    await flushIfNeeded();
-    currentBatch.update(inviteDoc.ref, { status: 'cancelled' });
-    opCount++;
+  const extraDeletes = new Map<string, FirebaseFirestore.DocumentReference>();
+  for (const doc of [...sentInvitesSnap.docs, ...(receivedInvitesSnap?.docs ?? []), ...tokenOwners.docs, ...memberDocs.docs]) {
+    extraDeletes.set(doc.ref.path, doc.ref);
   }
-
-  if (receivedInvitesSnap) {
-    for (const inviteDoc of receivedInvitesSnap.docs) {
+  for (const ref of extraDeletes.values()) {
+    await flushIfNeeded(); currentBatch.delete(ref); opCount++;
+  }
+  for (const privateOrder of customerOrders.docs) {
+    const orderRef = db.collection('eventOrders').doc(privateOrder.id);
+    const order = await orderRef.get();
+    if (order.exists) {
       await flushIfNeeded();
-      currentBatch.update(inviteDoc.ref, { status: 'cancelled' });
+      currentBatch.update(orderRef, { customerName: 'Deleted account', customerEmail: '', customerPhone: '', specialInstructions: '' });
       opCount++;
     }
+    await flushIfNeeded(); currentBatch.delete(privateOrder.ref); opCount++;
   }
 
   await currentBatch.commit();
+  await getStorage().bucket().deleteFiles({ prefix: `users/${uid}/` });
   console.log(`Cleaned up Firestore data for deleted user ${uid}`);
 });
