@@ -27,6 +27,10 @@ export interface SaintDetail {
 export interface SaintIndexDay {
   date: string;
   names: SaintName[];
+  primaryName?: SaintName;
+  priorityRank?: 'great_feast' | 'serbian_major' | 'common_slava' | 'notable_orthodox' | 'source_primary';
+  prioritySource?: 'curated_serbian_orthodox' | 'source_order';
+  priorityTitle?: string;
 }
 
 export interface SaintIndexMonth {
@@ -37,6 +41,10 @@ export interface SaintIndexMonth {
 export interface SaintFullDay {
   date: string;
   saints: SaintDetail[];
+  primaryName?: SaintName;
+  priorityRank?: 'great_feast' | 'serbian_major' | 'common_slava' | 'notable_orthodox' | 'source_primary';
+  prioritySource?: 'curated_serbian_orthodox' | 'source_order';
+  priorityTitle?: string;
 }
 
 /** Maps app Language to the key in the SaintName map. */

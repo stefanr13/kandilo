@@ -1,7 +1,8 @@
 import { useState, useMemo, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Clock, MapPin, ChevronRight, BookOpen, ArrowRight, History, X, ArrowLeft, Share2, Bookmark, Flame, MessageSquare, Heart } from 'lucide-react';
+import { Clock, MapPin, ChevronRight, BookOpen, ArrowRight, ArrowLeft, Heart, Church } from 'lucide-react';
 import DOMPurify from 'dompurify';
+import { getSaintDayDisplay } from '../lib/db/saintDisplay';
 import { Event } from '../data/events';
 import type { Newsletter } from '../data/newsletters';
 import { Language, Church as ChurchType } from '../types';
@@ -16,6 +17,11 @@ import {
   type SaintIndexDay,
   type SaintFullDay,
 } from '../lib/db/saints';
+
+type SaintDayPreview = {
+  dateKey: string;
+  saints: SaintIndexDay;
+};
 
 const SANITIZE_CONFIG = {
   ALLOWED_TAGS: ['h1','h2','h3','p','strong','em','ul','ol','li','br','a','blockquote','pre','code','hr'],
@@ -41,9 +47,41 @@ function firestoreNewsletterToUI(nl: FirestoreNewsletter, index: number): Newsle
   };
 }
 
+function dateFromDateKey(dateKey: string): Date {
+  const [year, month, day] = dateKey.split('-').map(Number);
+  return new Date(year, month - 1, day);
+}
+
+function dateKeyFromDate(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function addDaysToDateKey(dateKey: string, days: number): string {
+  const date = dateFromDateKey(dateKey);
+  date.setDate(date.getDate() + days);
+  return dateKeyFromDate(date);
+}
+
+function formatSaintDate(dateKey: string): string {
+  return dateFromDateKey(dateKey).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+}
+
+function getPostPreview(post: ChurchPost): string {
+  if (typeof DOMParser === 'undefined') {
+    return '';
+  }
+
+  const doc = new DOMParser().parseFromString(post.contentHtml, 'text/html');
+  return doc.body.textContent?.replace(/\s+/g, ' ').trim() ?? '';
+}
+
 interface HomeScreenProps {
   events: Event[];
   onSelectEvent: (event: Event) => void;
+  onOpenGiving: () => void;
   language: Language;
   activeChurch: ChurchType;
   churchPosts?: ChurchPost[];
@@ -51,22 +89,51 @@ interface HomeScreenProps {
   showSaintDays?: boolean;
 }
 
-export default function HomeScreen({ events, onSelectEvent, language, activeChurch, churchPosts = [], newsletters: firestoreNewsletters = [], showSaintDays = false }: HomeScreenProps) {
+export default function HomeScreen({ events, onSelectEvent, onOpenGiving, language, activeChurch, churchPosts = [], newsletters: firestoreNewsletters = [], showSaintDays = false }: HomeScreenProps) {
   const t = TRANSLATIONS[language].home;
   const [showAllNewsletters, setShowAllNewsletters] = useState(false);
   const [selectedNewsletter, setSelectedNewsletter] = useState<Newsletter | null>(null);
   const NEWSLETTERS = useMemo(() => firestoreNewsletters.map(firestoreNewsletterToUI), [firestoreNewsletters]);
   const [selectedPost, setSelectedPost] = useState<ChurchPost | null>(null);
   const [todaySaints, setTodaySaints] = useState<SaintIndexDay | null>(null);
+  const [upcomingSaintDays, setUpcomingSaintDays] = useState<SaintDayPreview[]>([]);
   const [saintDetail, setSaintDetail] = useState<SaintFullDay | null>(null);
   const [saintDetailLoading, setSaintDetailLoading] = useState(false);
   const [showSaintDetail, setShowSaintDetail] = useState(false);
 
   useEffect(() => {
-    if (!showSaintDays) { setTodaySaints(null); return; }
-    getSaintIndexForDate(todayDateKey())
-      .then(setTodaySaints)
-      .catch(() => setTodaySaints(null));
+    if (!showSaintDays) {
+      setTodaySaints(null);
+      setUpcomingSaintDays([]);
+      return;
+    }
+
+    let isActive = true;
+    const todayKey = todayDateKey();
+    const dateKeys = [todayKey, addDaysToDateKey(todayKey, 1), addDaysToDateKey(todayKey, 2)];
+
+    Promise.all(
+      dateKeys.map(async (dateKey) => ({
+        dateKey,
+        saints: await getSaintIndexForDate(dateKey),
+      }))
+    )
+      .then((days) => {
+        if (!isActive) return;
+        setTodaySaints(days[0]?.saints ?? null);
+        setUpcomingSaintDays(
+          days.slice(1).filter((day): day is SaintDayPreview => day.saints !== null)
+        );
+      })
+      .catch(() => {
+        if (!isActive) return;
+        setTodaySaints(null);
+        setUpcomingSaintDays([]);
+      });
+
+    return () => {
+      isActive = false;
+    };
   }, [showSaintDays]);
 
   const openSaintDetail = async () => {
@@ -91,7 +158,13 @@ export default function HomeScreen({ events, onSelectEvent, language, activeChur
     })[0] ?? events[0] ?? null;
   }, [events]);
 
-  const latestNewsletter = NEWSLETTERS[0] ?? null;
+  const featuredPost = churchPosts[0] ?? null;
+  const secondaryPosts = churchPosts.slice(1, 4);
+  const featuredPostPreview = useMemo(
+    () => (featuredPost ? getPostPreview(featuredPost) : ''),
+    [featuredPost]
+  );
+  const readMoreLabel = TRANSLATIONS[language].community.readMore;
 
   return (
     <motion.div
@@ -124,11 +197,7 @@ export default function HomeScreen({ events, onSelectEvent, language, activeChur
         <MobileContent
           t={t}
           nextEvent={nextEvent}
-          latestNewsletter={latestNewsletter}
-          newsletters={NEWSLETTERS}
-          showAllNewsletters={showAllNewsletters}
-          setShowAllNewsletters={setShowAllNewsletters}
-          setSelectedNewsletter={setSelectedNewsletter}
+          onOpenGiving={onOpenGiving}
           onSelectEvent={onSelectEvent}
           churchPosts={churchPosts}
           setSelectedPost={setSelectedPost}
@@ -140,225 +209,202 @@ export default function HomeScreen({ events, onSelectEvent, language, activeChur
         />
       </div>
 
-      {/* ── Desktop 2-column grid (hidden on mobile) ─────────────── */}
-      <div className="hidden lg:grid lg:w-full lg:max-w-7xl lg:mx-auto lg:grid-cols-[minmax(0,1.45fr)_minmax(320px,0.85fr)] lg:gap-8 xl:gap-10 lg:px-10 lg:pt-8 lg:items-start">
-        {/* Left column: hero card + next event + bulletins */}
-        <div className="space-y-8">
-          {/* Desktop hero card */}
-          <div className="relative h-72 xl:h-80 rounded-3xl overflow-hidden shadow-2xl shadow-black/10">
-            <img
-              src={activeChurch.image}
-              alt={activeChurch.name}
-              className="w-full h-full object-cover"
-              referrerPolicy="no-referrer"
-            />
-            <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent" />
-            <div className="absolute bottom-8 left-8 right-8">
-              <span className="text-[#937022] font-black text-[10px] tracking-[0.3em] uppercase mb-2 block">{t.yourParish}</span>
-              <h3 className="text-4xl font-black text-white tracking-tighter leading-tight">{activeChurch.name}</h3>
-              <div className="flex items-center gap-2 text-white/60 text-[10px] font-bold uppercase tracking-widest mt-2">
-                <MapPin size={12} className="text-[#937022]" />
-                {activeChurch.location}
-              </div>
-            </div>
-          </div>
+      {/* ── Desktop home layout (hidden on mobile) ───────────────── */}
+      <div className="hidden lg:block lg:w-full lg:max-w-7xl lg:mx-auto lg:px-8 xl:px-10 lg:pt-6">
 
-          {/* Upcoming Event */}
-          {nextEvent && (
+        {/* Premium Panoramic Church Banner — clean, atmospheric, and highly integrated */}
+        <div className="relative w-full h-40 xl:h-44 rounded-[32px] overflow-hidden mb-10 shadow-lg shadow-black/5 border border-gray-100 group">
+          <img
+            src={activeChurch.image}
+            alt={activeChurch.name}
+            className="w-full h-full object-cover transition-transform duration-1000 group-hover:scale-[1.02]"
+            referrerPolicy="no-referrer"
+          />
+          {/* Elegant dark gradient overlay for superb text contrast */}
+          <div className="absolute inset-0 bg-gradient-to-r from-black/85 via-black/40 to-transparent" />
+
+          {/* Content floating on the atmospheric church photo background */}
+          <div className="absolute inset-0 flex flex-col justify-center px-8 xl:px-10 space-y-1.5">
+            <span className="text-[#937022] font-black text-[9px] tracking-[0.3em] uppercase">
+              {t.yourParish}
+            </span>
+            <h1 className="text-2xl xl:text-3xl font-black text-white tracking-tight leading-none">
+              {activeChurch.name}
+            </h1>
+            <p className="text-white/70 text-xs font-medium max-w-xl leading-relaxed">
+              Welcome to our digital sanctuary. Here you can follow liturgies, read bulletins, and participate in parish life.
+            </p>
+          </div>
+        </div>
+
+        {/* Reimagined Grid: Left column for Announcements & Weekly Bulletins; Right column for Next Event & Saint of the Day */}
+        <div className="grid lg:grid-cols-[minmax(0,1fr)_360px] xl:grid-cols-[minmax(0,1fr)_390px] lg:gap-8 xl:gap-10 lg:items-start">
+
+          {/* Left Column (Wider): Reading Materials (Announcements & Bulletins) */}
+          <div className="space-y-10">
+
+            {/* Latest Announcements */}
             <div>
-              <div className="flex items-center justify-between mb-4">
-                <h2 className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em]">{t.nextEvent}</h2>
+              <div className="flex items-center justify-between mb-5">
+                <h2 className="text-[11px] font-black text-gray-500 uppercase tracking-[0.25em]">{t.latestAnnouncements}</h2>
                 <div className="h-px flex-1 bg-gray-100 ml-4" />
               </div>
-              <button
-                onClick={() => onSelectEvent(nextEvent)}
-                className="w-full bg-white rounded-[32px] overflow-hidden shadow-xl shadow-black/5 border border-gray-50 group transition-all active:scale-[0.98] hover:shadow-2xl"
-              >
-                <div className="p-8">
-                  <div className="flex justify-between items-start mb-6">
-                    <div>
-                      <span className="bg-[#800000] text-white text-[9px] font-black px-2 py-0.5 rounded uppercase tracking-widest mb-2 inline-block">{nextEvent.category}</span>
-                      <h3 className="text-2xl font-black text-gray-900 tracking-tight leading-tight">{nextEvent.title}</h3>
-                      {nextEvent.commemoration && <p className="text-[10px] font-bold text-[#937022] mt-1">{nextEvent.commemoration}</p>}
-                    </div>
-                    <div className="w-12 h-12 rounded-2xl bg-gray-50 flex flex-col items-center justify-center ml-4">
-                      <span className="text-[10px] font-black text-[#937022] leading-none">{nextEvent.month}</span>
-                      <span className="text-lg font-black text-gray-900 leading-none">{nextEvent.date}</span>
-                    </div>
-                  </div>
-                  <div className="flex gap-6 mb-6">
-                    <div className="flex items-center gap-2 text-gray-500 text-[11px] font-bold">
-                      <Clock size={14} className="text-[#937022]" />
-                      {nextEvent.time} – {nextEvent.endTime}
-                    </div>
-                    <div className="flex items-center gap-2 text-gray-500 text-[11px] font-bold">
-                      <MapPin size={14} className="text-[#937022]" />
-                      {nextEvent.location}
-                    </div>
-                  </div>
-                  <div className="flex items-center justify-between pt-4 border-t border-gray-50">
-                    <span className="text-[9px] font-black text-gray-400 uppercase tracking-widest">{t.viewDetails}</span>
-                    <div className="w-9 h-9 rounded-full bg-gray-900 flex items-center justify-center text-white group-hover:bg-[#800000] transition-colors">
-                      <ArrowRight size={16} />
-                    </div>
-                  </div>
-                </div>
-              </button>
-            </div>
-          )}
 
-          {/* Weekly Bulletins */}
-          <div>
-            <div className="flex items-center justify-between mb-6">
-              <h2 className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em]">{t.weeklyBulletins}</h2>
-              {NEWSLETTERS.length > 1 && (
-                <button
-                  onClick={() => setShowAllNewsletters(!showAllNewsletters)}
-                  className="flex items-center gap-1.5 text-[10px] font-black text-[#937022] uppercase tracking-widest hover:opacity-70 transition-opacity"
-                >
-                  {showAllNewsletters ? t.closeHistory : t.history}
-                  {showAllNewsletters ? <X size={12} /> : <History size={12} />}
-                </button>
+              {featuredPost ? (
+                <div className="space-y-6">
+                  <button
+                    onClick={() => setSelectedPost(featuredPost)}
+                    className="group w-full text-left transition-all active:scale-[0.99]"
+                  >
+                    <div className="overflow-hidden rounded-[28px] border-2 border-[#937022]/15 bg-white p-7 xl:p-8 shadow-xl shadow-black/5 hover:shadow-2xl hover:border-[#800000]/30 transition-all">
+                      <div className="flex items-start gap-6">
+                        <div className="w-12 h-12 rounded-2xl bg-[#937022]/10 flex items-center justify-center text-[#937022] flex-shrink-0 group-hover:bg-[#800000]/10 group-hover:text-[#800000] transition-colors">
+                          <BookOpen size={24} />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center justify-between gap-4 mb-3">
+                            <span className="text-[10px] font-black uppercase tracking-[0.25em] text-[#937022] group-hover:text-[#800000] transition-colors">{readMoreLabel}</span>
+                            <span className="text-[10px] font-black uppercase tracking-[0.25em] text-gray-400">
+                              {featuredPost.publishedAt?.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) ?? ''}
+                            </span>
+                          </div>
+                          <h3 className="text-2xl xl:text-3xl font-black text-gray-900 tracking-tight leading-tight group-hover:text-[#800000] transition-colors">
+                            {featuredPost.title}
+                          </h3>
+                          {featuredPostPreview && (
+                            <p className="mt-4 text-sm font-medium leading-relaxed text-gray-500 line-clamp-3">
+                              {featuredPostPreview}
+                            </p>
+                          )}
+                        </div>
+                        <div className="mt-12 w-11 h-11 rounded-full bg-gray-900 flex items-center justify-center text-white group-hover:bg-[#800000] transition-colors flex-shrink-0 shadow-md">
+                          <ArrowRight size={18} />
+                        </div>
+                      </div>
+                    </div>
+                  </button>
+
+                  {secondaryPosts.length > 0 && (
+                    <div className="overflow-hidden rounded-[24px] border border-gray-100 bg-white shadow-lg shadow-black/5">
+                      {secondaryPosts.map((post, i) => (
+                        <button
+                          key={post.id}
+                          onClick={() => setSelectedPost(post)}
+                          className="group flex w-full items-center gap-4 border-b border-gray-50 px-6 py-4 text-left last:border-b-0 transition-colors hover:bg-gray-50/70"
+                        >
+                          <div className="w-9 h-9 rounded-xl bg-gray-50 flex items-center justify-center text-[#937022] group-hover:bg-[#800000]/5 group-hover:text-[#800000] flex-shrink-0 transition-colors">
+                            {i % 2 === 0 ? <BookOpen size={17} /> : <Church size={17} />}
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <h4 className="text-sm font-black text-gray-900 group-hover:text-[#800000] line-clamp-1 transition-colors">{post.title}</h4>
+                            <p className="mt-0.5 text-[9px] font-bold uppercase tracking-widest text-gray-400">
+                              {post.publishedAt?.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) ?? ''}
+                            </p>
+                          </div>
+                          <ChevronRight size={14} className="text-gray-300 group-hover:text-[#800000] group-hover:translate-x-1 transition-all" />
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="overflow-hidden rounded-[24px] border border-gray-100 bg-white shadow-lg shadow-black/5 min-h-[240px] p-8 flex flex-col items-center justify-center text-center">
+                  <BookOpen size={26} className="text-gray-300 mb-3" />
+                  <p className="text-sm font-bold text-gray-400">{t.noAnnouncements}</p>
+                </div>
               )}
             </div>
-            {NEWSLETTERS.length === 0 ? (
-              <div className="bg-gray-50 rounded-[32px] p-8 text-center">
-                <BookOpen size={24} className="text-gray-300 mx-auto mb-3" />
-                <p className="text-sm font-bold text-gray-400">{t.noBulletins}</p>
-              </div>
-            ) : (
-              <AnimatePresence mode="wait">
-                {!showAllNewsletters && latestNewsletter ? (
-                  <motion.div
-                    key="latest"
-                    initial={{ opacity: 0, x: -20 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    exit={{ opacity: 0, x: 20 }}
-                    className="bg-gray-900 rounded-[32px] p-8 text-white relative overflow-hidden shadow-2xl shadow-black/20"
-                  >
-                    <div className="absolute top-0 right-0 w-64 h-64 bg-[#800000]/10 rounded-full -translate-y-1/2 translate-x-1/2 blur-3xl" />
-                    <div className="relative z-10">
-                      <div className="flex items-center gap-2 mb-4">
-                        <BookOpen size={16} className="text-[#937022]" />
-                        <span className="text-[10px] font-black uppercase tracking-[0.2em] text-white/50">{latestNewsletter.date}</span>
+
+          </div>
+
+          {/* Right Column (Sidebar): Events & Saints only — Clean, minimal, no "too much action" */}
+          <div className="space-y-10">
+
+            {/* Next Event Section */}
+            {nextEvent && (
+              <div>
+                <div className="flex items-center justify-between mb-4">
+                  <h2 className="text-[11px] font-black text-gray-500 uppercase tracking-[0.25em]">{t.nextEvent}</h2>
+                  <div className="h-px flex-1 bg-gray-100 ml-4" />
+                </div>
+                <button
+                  onClick={() => onSelectEvent(nextEvent)}
+                  className="w-full bg-white rounded-[24px] overflow-hidden shadow-lg shadow-black/5 border border-gray-100 group transition-all active:scale-[0.98] hover:shadow-xl text-left"
+                >
+                  <div className="p-6">
+                    <div className="flex justify-between items-start gap-4 mb-4">
+                      <div className="min-w-0">
+                        <span className="bg-[#800000] text-white text-[9px] font-black px-2.5 py-1 rounded uppercase tracking-widest mb-2 inline-block leading-none">{nextEvent.category}</span>
+                        <h3 className="text-xl font-black text-gray-900 tracking-tight leading-tight group-hover:text-[#800000] transition-colors">{nextEvent.title}</h3>
+                        {nextEvent.commemoration && <p className="text-[10px] font-bold text-[#937022] mt-1">{nextEvent.commemoration}</p>}
                       </div>
-                      <h3 className="text-2xl font-black tracking-tighter leading-tight mb-4">{latestNewsletter.title}</h3>
-                      <p className="text-white/60 text-xs leading-relaxed mb-8 line-clamp-2">{latestNewsletter.excerpt}</p>
-                      <button
-                        onClick={() => setSelectedNewsletter(latestNewsletter)}
-                        className="w-full py-4 bg-white text-gray-900 rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-gray-100 transition-all active:scale-95"
-                      >
-                        {t.readBulletin}
-                      </button>
+                      <div className="w-11 h-11 rounded-2xl bg-[#937022]/10 flex flex-col items-center justify-center flex-shrink-0">
+                        <span className="text-[9px] font-black text-[#937022] leading-none uppercase">{nextEvent.month}</span>
+                        <span className="text-base font-black text-gray-900 leading-none mt-0.5">{nextEvent.date}</span>
+                      </div>
                     </div>
-                  </motion.div>
-                ) : (
-                  <motion.div
-                    key="archive"
-                    initial={{ opacity: 0, x: 20 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    exit={{ opacity: 0, x: -20 }}
-                    className="grid grid-cols-1 xl:grid-cols-2 gap-3"
-                  >
-                    {NEWSLETTERS.map((news) => (
-                      <button
-                        key={news.id}
-                        onClick={() => setSelectedNewsletter(news)}
-                        className="bg-white border border-gray-100 rounded-[24px] p-5 flex items-center gap-4 shadow-sm hover:shadow-md transition-all group text-left"
-                      >
-                        <div className="flex-1 min-w-0">
-                          <span className="text-[8px] font-black text-[#937022] uppercase tracking-widest mb-1 block">{news.date}</span>
-                          <h4 className="font-black text-gray-900 text-sm leading-tight">{news.title}</h4>
-                          <p className="text-[10px] text-gray-400 font-bold mt-1">{news.readTime}</p>
-                        </div>
-                        <ChevronRight size={16} className="text-gray-200 group-hover:text-gray-400 transition-colors" />
-                      </button>
-                    ))}
-                  </motion.div>
-                )}
-              </AnimatePresence>
-            )}
-          </div>
-        </div>
-
-        {/* Right column: announcements + saint + quick actions */}
-        <div className="space-y-8">
-          {/* Announcements / Real posts */}
-          <div>
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em]">{t.latestAnnouncements}</h2>
-              <div className="h-px flex-1 bg-gray-100 ml-4" />
-            </div>
-            {churchPosts.length > 0 ? (
-              <div className="space-y-3">
-                {churchPosts.slice(0, 4).map((post, i) => (
-                  <div
-                    key={post.id}
-                    onClick={() => setSelectedPost(post)}
-                    className="bg-white p-4 rounded-2xl border border-gray-50 shadow-sm flex items-center gap-4 transition-all cursor-pointer hover:shadow-md hover:border-gray-200"
-                  >
-                    <div className="w-10 h-10 rounded-xl bg-gray-50 flex items-center justify-center text-[#937022]">
-                      {i % 2 === 0 ? <Flame size={18} /> : <BookOpen size={18} />}
+                    <div className="space-y-2.5 mb-5">
+                      <div className="flex items-center gap-2.5 text-gray-500 text-xs font-bold">
+                        <Clock size={15} className="text-[#937022]" />
+                        {nextEvent.time} – {nextEvent.endTime}
+                      </div>
+                      <div className="flex items-center gap-2.5 text-gray-500 text-xs font-bold">
+                        <MapPin size={15} className="text-[#937022]" />
+                        {nextEvent.location}
+                      </div>
                     </div>
-                    <div className="flex-1">
-                      <h4 className="text-xs font-black text-gray-900 line-clamp-1">{post.title}</h4>
-                      <p className="text-[9px] text-gray-400 font-bold uppercase tracking-widest">
-                        {post.publishedAt?.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) ?? ''}
-                      </p>
+                    <div className="flex items-center justify-between pt-4 border-t border-gray-100">
+                      <span className="text-[9px] font-black text-gray-400 uppercase tracking-widest group-hover:text-[#800000] transition-colors">{t.viewDetails}</span>
+                      <div className="w-9 h-9 rounded-full bg-gray-950 flex items-center justify-center text-white group-hover:bg-[#800000] transition-colors shadow-sm">
+                        <ArrowRight size={16} />
+                      </div>
                     </div>
-                    <ChevronRight size={14} className="text-gray-300" />
                   </div>
-                ))}
-              </div>
-            ) : (
-              <div className="bg-gray-50 rounded-2xl p-6 text-center">
-                <Flame size={20} className="text-gray-300 mx-auto mb-2" />
-                <p className="text-sm font-bold text-gray-400">{t.noAnnouncements}</p>
-              </div>
-            )}
-          </div>
-
-          {/* Quick Actions */}
-          <div>
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em]">Quick Access</h2>
-              <div className="h-px flex-1 bg-gray-100 ml-4" />
-            </div>
-            <div className="grid grid-cols-3 gap-3">
-              {[
-                { label: t.prayer, icon: MessageSquare, color: '#800000' },
-                { label: t.candle, icon: Flame, color: '#937022' },
-                { label: t.giving, icon: Heart, color: '#800000' },
-              ].map((action, i) => (
-                <button key={i} className="flex flex-col items-center gap-3 p-4 bg-white rounded-2xl shadow-sm border border-gray-50 hover:shadow-md active:scale-95 transition-all">
-                  <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ backgroundColor: `${action.color}10`, color: action.color }}>
-                    <action.icon size={20} />
-                  </div>
-                  <span className="text-center text-[9px] font-black text-gray-900 uppercase tracking-widest leading-tight">{action.label}</span>
                 </button>
-              ))}
-            </div>
+              </div>
+            )}
+
+            {/* Saint of the Day Section */}
+            {showSaintDays && (
+              <div>
+                <div className="flex items-center justify-between mb-4">
+                  <h2 className="text-[11px] font-black text-gray-500 uppercase tracking-[0.25em]">{t.saintOfDay}</h2>
+                  <div className="h-px flex-1 bg-gray-100 ml-4" />
+                </div>
+                <SaintCard
+                  saints={todaySaints}
+                  upcomingDays={upcomingSaintDays}
+                  language={language}
+                  saintDetailLoading={saintDetailLoading}
+                  onReadLife={() => void openSaintDetail()}
+                  t={t}
+                  rounded="rounded-[24px]"
+                />
+              </div>
+            )}
+
           </div>
 
-          {/* Daily Saint */}
-          {showSaintDays && (
-            <div>
-              <div className="flex items-center justify-between mb-4">
-                <h2 className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em]">{t.saintOfDay}</h2>
-                <div className="h-px flex-1 bg-gray-100 ml-4" />
-              </div>
-              <SaintCard
-                saints={todaySaints}
-                language={language}
-                saintDetailLoading={saintDetailLoading}
-                onReadLife={() => void openSaintDetail()}
-                t={t}
-                rounded="rounded-[32px]"
-              />
-            </div>
-          )}
         </div>
       </div>
+
+      {NEWSLETTERS.length > 0 && (
+        <section className="mx-auto mb-10 max-w-7xl px-8" aria-label={t.weeklyBulletins}>
+          <div className="mb-4 flex items-center justify-between">
+            <h2 className="text-lg font-bold">{t.weeklyBulletins}</h2>
+            {NEWSLETTERS.length > 3 && <button type="button" onClick={() => setShowAllNewsletters((value) => !value)} className="text-sm font-bold text-[#800000]">{showAllNewsletters ? t.closeHistory : t.history}</button>}
+          </div>
+          <div className="grid gap-3 lg:grid-cols-3">
+            {(showAllNewsletters ? NEWSLETTERS : NEWSLETTERS.slice(0, 3)).map((newsletter) => (
+              <button key={newsletter.id} type="button" onClick={() => setSelectedNewsletter(newsletter)} className="rounded-2xl border border-gray-100 bg-white p-5 text-left">
+                <p className="text-xs text-gray-500">{newsletter.date}</p>
+                <h3 className="my-2 font-bold">{newsletter.title}</h3>
+                <span className="text-sm font-bold text-[#800000]">{t.readBulletin} →</span>
+              </button>
+            ))}
+          </div>
+        </section>
+      )}
 
       {/* Saint Detail Modal */}
       <AnimatePresence>
@@ -442,14 +488,7 @@ export default function HomeScreen({ events, onSelectEvent, language, activeChur
               >
                 <ArrowLeft size={24} />
               </button>
-              <div className="flex gap-2">
-                <button className="w-10 h-10 flex items-center justify-center text-gray-400 hover:text-gray-900 transition-colors">
-                  <Bookmark size={20} />
-                </button>
-                <button className="w-10 h-10 flex items-center justify-center text-gray-400 hover:text-gray-900 transition-colors">
-                  <Share2 size={20} />
-                </button>
-              </div>
+
             </div>
             <div className="flex-1 overflow-y-auto scrollbar-hide">
               <div className="max-w-3xl mx-auto px-8 py-10">
@@ -482,6 +521,7 @@ export default function HomeScreen({ events, onSelectEvent, language, activeChur
 /* ── Saint card (shared between mobile and desktop) ─────────────────────── */
 function SaintCard({
   saints,
+  upcomingDays = [],
   language,
   saintDetailLoading,
   onReadLife,
@@ -489,14 +529,17 @@ function SaintCard({
   rounded = 'rounded-[40px]',
 }: {
   saints: SaintIndexDay | null;
+  upcomingDays?: SaintDayPreview[];
   language: Language;
   saintDetailLoading: boolean;
   onReadLife: () => void;
   t: AppTranslations['home'];
   rounded?: string;
 }) {
-  const primaryName = getSaintLocalizedText(saints?.names[0], language) || t.saintName;
-  const extraCount = saints ? Math.max(0, saints.names.length - 1) : 0;
+  const [activeTab, setActiveTab] = useState<'today' | 'upcoming'>('today');
+
+  const primaryName = getSaintDayDisplay(saints, language).featuredName;
+  const extraCount = saints ? Math.max(0, saints.names.filter((name) => getSaintLocalizedText(name, language, false)).length - 1) : 0;
 
   return (
     <div className={`bg-white ${rounded} overflow-hidden shadow-xl shadow-black/5 border border-gray-50`}>
@@ -506,25 +549,79 @@ function SaintCard({
       </div>
       <div className="px-6 pb-6 -mt-6 relative z-10">
         <div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-50">
-          {saints ? (
+          {upcomingDays.length > 0 && (
+            <div className="flex bg-gray-50 p-1 rounded-xl mb-4 border border-gray-100/50">
+              <button
+                onClick={() => setActiveTab('today')}
+                className={`flex-1 text-center py-2 text-[10px] font-black uppercase tracking-widest rounded-lg transition-all ${
+                  activeTab === 'today'
+                    ? 'bg-white text-gray-900 shadow-sm'
+                    : 'text-gray-400 hover:text-gray-600'
+                }`}
+              >
+                {t.saintOfDay}
+              </button>
+              <button
+                onClick={() => setActiveTab('upcoming')}
+                className={`flex-1 text-center py-2 text-[10px] font-black uppercase tracking-widest rounded-lg transition-all ${
+                  activeTab === 'upcoming'
+                    ? 'bg-white text-gray-900 shadow-sm'
+                    : 'text-gray-400 hover:text-gray-600'
+                }`}
+              >
+                {t.upcomingSaints}
+              </button>
+            </div>
+          )}
+
+          {activeTab === 'today' ? (
             <>
-              <h3 className="text-base font-black text-gray-900 tracking-tight leading-tight line-clamp-2">{primaryName}</h3>
-              {extraCount > 0 && (
-                <p className="text-[10px] text-[#937022] font-black uppercase tracking-widest mt-1">
-                  +{extraCount} more {extraCount === 1 ? 'commemoration' : 'commemorations'}
-                </p>
+              {primaryName ? (
+                <>
+                  <h3 className="text-base font-black text-gray-900 tracking-tight leading-tight line-clamp-2">{primaryName}</h3>
+                  {extraCount > 0 && (
+                    <p className="text-[10px] text-[#937022] font-black uppercase tracking-widest mt-1">
+                      +{extraCount} more {extraCount === 1 ? 'commemoration' : 'commemorations'}
+                    </p>
+                  )}
+                </>
+              ) : (
+                <p className="text-sm text-gray-500">{t.noSaintData}</p>
               )}
+              {primaryName && <button
+                onClick={onReadLife}
+                disabled={saintDetailLoading}
+                className="mt-3 text-[10px] font-black text-gray-900 uppercase tracking-widest flex items-center gap-2 hover:text-[#937022] transition-colors disabled:opacity-50"
+              >
+                {saintDetailLoading ? 'Loading…' : t.readLife} <ArrowRight size={12} />
+              </button>}
             </>
           ) : (
-            <h3 className="text-base font-black text-gray-900 tracking-tight">{t.saintName}</h3>
+            <div>
+              <div className="space-y-3">
+                {upcomingDays.map((day) => {
+                  const name = getSaintDayDisplay(day.saints, language).featuredName;
+                  const extraCount = Math.max(0, day.saints.names.filter((name) => getSaintLocalizedText(name, language, false)).length - 1);
+
+                  return (
+                    <div key={day.dateKey} className="flex items-start gap-3">
+                      <span className="w-12 flex-shrink-0 text-[9px] font-black text-[#937022] uppercase tracking-widest pt-0.5">
+                        {formatSaintDate(day.dateKey)}
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-[11px] font-black text-gray-900 leading-tight line-clamp-2">{name}</p>
+                        {extraCount > 0 && (
+                          <p className="text-[9px] font-bold text-gray-400 uppercase tracking-widest mt-1">
+                            +{extraCount} more
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
           )}
-          <button
-            onClick={onReadLife}
-            disabled={saintDetailLoading}
-            className="mt-3 text-[10px] font-black text-gray-900 uppercase tracking-widest flex items-center gap-2 hover:text-[#937022] transition-colors disabled:opacity-50"
-          >
-            {saintDetailLoading ? 'Loading…' : t.readLife} <ArrowRight size={12} />
-          </button>
         </div>
       </div>
     </div>
@@ -533,15 +630,11 @@ function SaintCard({
 
 /* ── Shared mobile content (reused below lg) ──────────────────────────── */
 function MobileContent({
-  t, nextEvent, latestNewsletter, newsletters, showAllNewsletters, setShowAllNewsletters, setSelectedNewsletter, onSelectEvent, churchPosts, setSelectedPost, showSaintDays, todaySaints, saintDetailLoading, language, onOpenSaintDetail,
+  t, nextEvent, onOpenGiving, onSelectEvent, churchPosts, setSelectedPost, showSaintDays, todaySaints, saintDetailLoading, language, onOpenSaintDetail,
 }: {
   t: AppTranslations['home'];
   nextEvent: Event | null;
-  latestNewsletter: Newsletter | null;
-  newsletters: Newsletter[];
-  showAllNewsletters: boolean;
-  setShowAllNewsletters: (v: boolean) => void;
-  setSelectedNewsletter: (n: Newsletter | null) => void;
+  onOpenGiving: () => void;
   onSelectEvent: (e: Event) => void;
   churchPosts: ChurchPost[];
   setSelectedPost: (p: ChurchPost | null) => void;
@@ -568,7 +661,7 @@ function MobileContent({
                 className="bg-white p-4 rounded-2xl border border-gray-50 shadow-sm flex items-center gap-4 cursor-pointer active:scale-[0.98] transition-all"
               >
                 <div className="w-10 h-10 rounded-xl bg-gray-50 flex items-center justify-center text-[#937022]">
-                  {i % 2 === 0 ? <Flame size={18} /> : <BookOpen size={18} />}
+                  {i % 2 === 0 ? <BookOpen size={18} /> : <Church size={18} />}
                 </div>
                 <div className="flex-1">
                   <h4 className="text-xs font-black text-gray-900 line-clamp-1">{post.title}</h4>
@@ -582,7 +675,7 @@ function MobileContent({
           </div>
         ) : (
           <div className="bg-gray-50 rounded-3xl p-6 text-center">
-            <Flame size={20} className="text-gray-300 mx-auto mb-2" />
+            <BookOpen size={20} className="text-gray-300 mx-auto mb-2" />
             <p className="text-sm font-bold text-gray-400">{t.noAnnouncements}</p>
           </div>
         )}
@@ -605,21 +698,9 @@ function MobileContent({
         </div>
       )}
 
-      {/* Quick Actions */}
-      <div className="grid grid-cols-3 gap-4 mb-12">
-        {[
-          { label: t.prayer, icon: MessageSquare, color: '#800000' },
-          { label: t.candle, icon: Flame, color: '#937022' },
-          { label: t.giving, icon: Heart, color: '#800000' },
-        ].map((action, i) => (
-          <button key={i} className="flex flex-col items-center gap-3 p-4 bg-white rounded-3xl shadow-sm border border-gray-50 active:scale-95 transition-all">
-            <div className="w-12 h-12 rounded-2xl flex items-center justify-center" style={{ backgroundColor: `${action.color}10`, color: action.color }}>
-              <action.icon size={24} />
-            </div>
-            <span className="text-[10px] font-black text-gray-900 uppercase tracking-widest">{action.label}</span>
-          </button>
-        ))}
-      </div>
+      <button type="button" onClick={onOpenGiving} className="mb-8 flex items-center gap-3 rounded-2xl bg-white px-5 py-4 font-bold text-[#800000] shadow-sm">
+        <Heart size={20} /> {t.giving}
+      </button>
 
       {/* Next Event */}
       {nextEvent && (
@@ -663,78 +744,6 @@ function MobileContent({
         </div>
       )}
 
-      {/* Bulletins */}
-      <div className="mb-12">
-        <div className="flex items-center justify-between mb-6">
-          <h2 className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em]">{t.weeklyBulletins}</h2>
-          {newsletters.length > 1 && (
-            <button
-              onClick={() => setShowAllNewsletters(!showAllNewsletters)}
-              className="flex items-center gap-1.5 text-[10px] font-black text-[#937022] uppercase tracking-widest hover:opacity-70 transition-opacity"
-            >
-              {showAllNewsletters ? t.closeHistory : t.history}
-              {showAllNewsletters ? <X size={12} /> : <History size={12} />}
-            </button>
-          )}
-        </div>
-        {newsletters.length === 0 ? (
-          <div className="bg-gray-50 rounded-[40px] p-8 text-center">
-            <BookOpen size={24} className="text-gray-300 mx-auto mb-3" />
-            <p className="text-sm font-bold text-gray-400">{t.noBulletins}</p>
-          </div>
-        ) : (
-          <AnimatePresence mode="wait">
-            {!showAllNewsletters && latestNewsletter ? (
-              <motion.div
-                key="latest"
-                initial={{ opacity: 0, x: -20 }}
-                animate={{ opacity: 1, x: 0 }}
-                exit={{ opacity: 0, x: 20 }}
-                className="bg-gray-900 rounded-[40px] p-8 text-white relative overflow-hidden shadow-2xl shadow-black/20"
-              >
-                <div className="absolute top-0 right-0 w-64 h-64 bg-[#800000]/10 rounded-full -translate-y-1/2 translate-x-1/2 blur-3xl" />
-                <div className="relative z-10">
-                  <div className="flex items-center gap-2 mb-4">
-                    <BookOpen size={16} className="text-[#937022]" />
-                    <span className="text-[10px] font-black uppercase tracking-[0.2em] text-white/50">{latestNewsletter.date}</span>
-                  </div>
-                  <h3 className="text-2xl font-black tracking-tighter leading-tight mb-4">{latestNewsletter.title}</h3>
-                  <p className="text-white/60 text-xs leading-relaxed mb-8 line-clamp-2">{latestNewsletter.excerpt}</p>
-                  <button
-                    onClick={() => setSelectedNewsletter(latestNewsletter)}
-                    className="w-full py-4 bg-white text-gray-900 rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-gray-100 transition-all active:scale-95"
-                  >
-                    {t.readBulletin}
-                  </button>
-                </div>
-              </motion.div>
-            ) : (
-              <motion.div
-                key="archive"
-                initial={{ opacity: 0, x: 20 }}
-                animate={{ opacity: 1, x: 0 }}
-                exit={{ opacity: 0, x: -20 }}
-                className="space-y-3"
-              >
-                {newsletters.map((news) => (
-                  <button
-                    key={news.id}
-                    onClick={() => setSelectedNewsletter(news)}
-                    className="w-full bg-white border border-gray-100 rounded-[28px] p-5 flex items-center gap-5 shadow-sm hover:shadow-md transition-all group text-left"
-                  >
-                    <div className="flex-1 min-w-0">
-                      <span className="text-[8px] font-black text-[#937022] uppercase tracking-widest mb-1 block">{news.date}</span>
-                      <h4 className="font-black text-gray-900 text-sm leading-tight">{news.title}</h4>
-                      <p className="text-[10px] text-gray-400 font-bold mt-1">{news.readTime}</p>
-                    </div>
-                    <ChevronRight size={18} className="text-gray-200 group-hover:text-gray-400 transition-colors" />
-                  </button>
-                ))}
-              </motion.div>
-            )}
-          </AnimatePresence>
-        )}
-      </div>
     </>
   );
 }

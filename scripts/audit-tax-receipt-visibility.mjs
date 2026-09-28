@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { getApps, initializeApp } from 'firebase-admin/app';
+import { applicationDefault, getApps, initializeApp } from 'firebase-admin/app';
 import { FieldPath, FieldValue, getFirestore } from 'firebase-admin/firestore';
 import { spawnSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
@@ -1411,6 +1411,11 @@ async function main() {
   let db;
   let repairAccessToken = '';
   try {
+    // Resolve credentials before Firestore starts concurrent gRPC initialization.
+    // A missing ADC must reach the CLI-auth fallback, not an unhandled rejection.
+    if (!process.env.FIRESTORE_EMULATOR_HOST) {
+      await applicationDefault().getAccessToken();
+    }
     db = initializeFirestore(options.projectId);
     scan = await loadTaxReceiptVisibilityScan(db, options);
     report = planTaxReceiptVisibilityRepairs(scan);

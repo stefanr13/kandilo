@@ -10,6 +10,8 @@ import {
   Globe,
   LogIn,
   Loader2,
+  Church,
+  Cross,
 } from 'lucide-react';
 import { Language } from '../types';
 import { signIn, signUp, signInWithGoogle, signInAsGuest, resetPassword, getFirebaseAuthError } from '../lib/auth';
@@ -424,7 +426,7 @@ export default function AuthScreen({
           <div className="absolute inset-0 bg-gradient-to-t from-white via-white/20 to-transparent" />
           <div className="absolute top-12 left-8">
             <div className="w-12 h-12 bg-[#800000] rounded-2xl flex items-center justify-center text-white shadow-xl shadow-red-900/20">
-              <Flame size={24} />
+              <Church size={24} />
             </div>
           </div>
           <button
@@ -522,7 +524,7 @@ export default function AuthScreen({
             )}
 
             <div className="w-16 h-16 bg-[#800000] rounded-[24px] flex items-center justify-center text-white shadow-xl shadow-red-900/20 mb-6">
-              <Flame size={32} />
+              <Cross size={32} />
             </div>
             <h1 className="text-4xl font-black text-gray-900 tracking-tighter leading-tight">
               {mode === 'signin' ? t.welcome : mode === 'signup' ? t.join : t.reset}
@@ -686,18 +688,3 @@ export default function AuthScreen({
     </div>
   );
 }
-
-const Flame = ({ size }: { size: number }) => (
-  <svg
-    width={size}
-    height={size}
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth="2.5"
-    strokeLinecap="round"
-    strokeLinejoin="round"
-  >
-    <path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z" />
-  </svg>
-);

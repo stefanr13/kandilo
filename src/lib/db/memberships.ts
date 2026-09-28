@@ -103,12 +103,13 @@ export function subscribeToChurchMembers(
 
 export function subscribeToAllChurchMembersForManagement(
   churchId: string,
-  callback: (members: FirestoreMember[]) => void
+  callback: (members: FirestoreMember[]) => void,
+  onError?: (error: Error) => void
 ): () => void {
   const ref = collection(db, 'churches', churchId, 'members');
   return onSnapshot(ref, (snap) => {
     callback(snap.docs.map(mapFirestoreMember));
-  });
+  }, onError);
 }
 
 export function mapFirestoreMember(d: { id: string; data: () => Record<string, unknown> }): FirestoreMember {

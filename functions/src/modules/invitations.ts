@@ -38,87 +38,58 @@ function getChurchLocation(church: DocumentData): string {
 
 export const joinChurch = onCall({ ...replayProtectedCallableOptions, secrets: [] }, async (request) => {
   assertFreshAppCheck(request);
-  assertVerifiedNonAnonymousUser(request, 'A verified, non-anonymous account is required to join a church.');
+  assertVerifiedNonAnonymousUser(request);
 
   const { churchId: rawChurchId } = callableDataRecord(request.data);
   const churchId = assertNonEmptyString(rawChurchId, 128, 'churchId');
+  if (churchId.includes('/')) throw new HttpsError('invalid-argument', 'churchId is not valid.');
   const uid = request.auth!.uid;
-
-  const [churchDoc, userRecord, existingMember] = await Promise.all([
-    db.collection('churches').doc(churchId).get(),
-    auth.getUser(uid),
-    db.collection('churches').doc(churchId).collection('members').doc(uid).get(),
-  ]);
-
-  if (!churchDoc.exists) {
-    throw new HttpsError('not-found', 'Church not found.');
+  const userRecord = await auth.getUser(uid);
+  if (!userRecord.emailVerified || !userRecord.email) {
+    throw new HttpsError('failed-precondition', 'Please verify your email address first.');
   }
-  const church = churchDoc.data()!;
-  if (church.isActive !== true) {
-    throw new HttpsError('failed-precondition', 'This church is not currently accepting memberships.');
-  }
-
-  if (existingMember.exists) {
-    if (existingMember.data()?.status !== 'active') {
-      throw new HttpsError('failed-precondition', 'This membership is not active.');
-    }
-    return { success: true, alreadyMember: true };
-  }
-
   await checkRateLimit(uid, 'joinChurch', 6, 60 * 60 * 1000);
 
-  const activeMembershipsSnap = await db
-    .collection('users')
-    .doc(uid)
-    .collection('churchMemberships')
-    .where('status', '==', 'active')
-    .limit(MAX_SELF_JOIN_CHURCHES)
-    .get();
-
-  if (activeMembershipsSnap.size >= MAX_SELF_JOIN_CHURCHES) {
-    throw new HttpsError(
-      'resource-exhausted',
-      'You can join up to 3 churches. Leave a church before joining another.'
-    );
-  }
-
-  const email = userRecord.email ?? request.auth!.token.email;
-  if (!email) {
-    throw new HttpsError('failed-precondition', 'A primary email address is required to join a church.');
-  }
-
-  const now = FieldValue.serverTimestamp();
-  const batch = db.batch();
-  const displayName = userRecord.displayName ?? email;
-  const photoURL = userRecord.photoURL ?? '';
-  const location = getChurchLocation(church);
-
-  batch.set(db.collection('churches').doc(churchId).collection('members').doc(uid), {
-    userId: uid,
-    churchId,
-    role: 'member',
-    status: 'active',
-    displayName,
-    email,
-    photoURL,
-    joinedAt: now,
-    showInDirectory: true,
+  return db.runTransaction(async (tx) => {
+    const userRef = db.collection('users').doc(uid);
+    const memberRef = db.collection('churches').doc(churchId).collection('members').doc(uid);
+    const [churchDoc, existingMember] = await Promise.all([
+      tx.get(db.collection('churches').doc(churchId)),
+      tx.get(memberRef),
+      // Serialize simultaneous self-joins through the user's profile document.
+      tx.get(userRef),
+    ]);
+    if (!churchDoc.exists) throw new HttpsError('not-found', 'Church not found.');
+    const church = churchDoc.data()!;
+    if (church.isActive !== true) {
+      throw new HttpsError('failed-precondition', 'This church is not currently accepting memberships.');
+    }
+    if (existingMember.exists) {
+      if (existingMember.data()?.status !== 'active') {
+        throw new HttpsError('failed-precondition', 'This membership is not active.');
+      }
+      return { success: true, alreadyMember: true };
+    }
+    const memberships = await tx.get(userRef.collection('churchMemberships')
+      .where('status', '==', 'active').limit(MAX_SELF_JOIN_CHURCHES));
+    if (memberships.size >= MAX_SELF_JOIN_CHURCHES) {
+      throw new HttpsError('resource-exhausted', 'You can join up to 3 churches. Leave a church before joining another.');
+    }
+    const now = FieldValue.serverTimestamp();
+    tx.set(memberRef, {
+      userId: uid, churchId, role: 'member', status: 'active',
+      displayName: userRecord.displayName ?? userRecord.email!,
+      email: userRecord.email!, photoURL: userRecord.photoURL ?? '',
+      joinedAt: now, showInDirectory: true,
+    });
+    tx.set(userRef.collection('churchMemberships').doc(churchId), {
+      churchId, churchName: church.name ?? '', location: getChurchLocation(church),
+      imageURL: church.imageURL ?? '', role: 'member', status: 'active',
+      churchActive: true, joinedAt: now,
+    });
+    tx.set(userRef, { membershipsUpdatedAt: now }, { merge: true });
+    return { success: true };
   });
-
-  batch.set(db.collection('users').doc(uid).collection('churchMemberships').doc(churchId), {
-    churchId,
-    churchName: church.name ?? '',
-    location,
-    imageURL: church.imageURL ?? '',
-    role: 'member',
-    status: 'active',
-    churchActive: true,
-    joinedAt: now,
-  });
-
-  await batch.commit();
-
-  return { success: true };
 });
 
 export const acceptInvitation = onCall({ ...replayProtectedCallableOptions, secrets: [] }, async (request) => {

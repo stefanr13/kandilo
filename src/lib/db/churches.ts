@@ -1,27 +1,16 @@
 import {
-  collection,
   doc,
   getDoc,
-  getDocs,
-  limit,
   onSnapshot,
-  query,
   updateDoc,
-  where,
   writeBatch,
 } from 'firebase/firestore';
 import { db } from '../firebase/firestore';
 import { ChurchSummary, mapChurchSummary } from '../../domain/church';
-
-const DISCOVER_CHURCH_LIMIT = 100;
+import { listActiveChurches } from '../api/churches';
 
 export async function listAllChurches(): Promise<ChurchSummary[]> {
-  const snap = await getDocs(query(
-    collection(db, 'churches'),
-    where('isActive', '==', true),
-    limit(DISCOVER_CHURCH_LIMIT)
-  ));
-  return snap.docs.map((snapshot) => mapChurchSummary(snapshot.id, snapshot.data()));
+  return listActiveChurches();
 }
 
 export async function getChurchById(churchId: string): Promise<ChurchSummary | null> {
@@ -39,11 +28,12 @@ export async function getChurchById(churchId: string): Promise<ChurchSummary | n
  */
 export function subscribeToChurch(
   churchId: string,
-  onData: (church: ChurchSummary | null) => void
+  onData: (church: ChurchSummary | null) => void,
+  onError?: (error: Error) => void
 ): () => void {
   return onSnapshot(doc(db, 'churches', churchId), (snap) => {
     onData(snap.exists() ? mapChurchSummary(snap.id, snap.data()) : null);
-  });
+  }, onError);
 }
 
 /**

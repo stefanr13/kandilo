@@ -115,7 +115,7 @@ describe('GivingScreen receipt safeguards', () => {
     const source = readFileSync(resolve(process.cwd(), 'src/components/GivingScreen.tsx'), 'utf8');
     const successSource = source.slice(
       source.indexOf("if (givingPhase === 'success')"),
-      source.indexOf('const waysToGive = [')
+      source.indexOf('const onlineGivingOptions = [')
     );
 
     expect(successSource).toContain('extra.receiptHistoryTitle');
@@ -141,6 +141,25 @@ describe('GivingScreen receipt safeguards', () => {
     expect(source).toContain('role="region"');
     expect(source).toContain('tabIndex={-1}');
     expect(source).toContain('aria-label={extra.receiptHistoryTitle}');
+  });
+
+  it('does not advertise unsupported giving modes or hardcoded campaign metrics', () => {
+    const source = readFileSync(resolve(process.cwd(), 'src/components/GivingScreen.tsx'), 'utf8');
+    const publicGivingSource = source.slice(source.indexOf('const onlineGivingOptions = ['));
+
+    expect(publicGivingSource).toContain('const onlineGivingOptions = [');
+    expect(publicGivingSource).toContain('t.oneTimeTitle');
+    expect(publicGivingSource).toContain("onClick={() => setGivingPhase('details')}");
+    expect(publicGivingSource).not.toContain('t.monthlyTitle');
+    expect(publicGivingSource).not.toContain('t.buildingTitle');
+    expect(publicGivingSource).not.toContain('t.inPersonTitle');
+    expect(publicGivingSource).not.toContain('extra.yourImpact');
+    expect(publicGivingSource).not.toContain('$250,000');
+    expect(publicGivingSource).not.toContain('$162,500');
+    expect(publicGivingSource).not.toContain("'342'");
+    expect(publicGivingSource).not.toContain("'$12K'");
+    expect(publicGivingSource).not.toContain("'89%'");
+    expect(publicGivingSource).not.toContain("'5 yrs'");
   });
 
   it('uses the active church currency for Checkout and visible donation amounts', () => {
@@ -359,13 +378,14 @@ describe('GivingScreen receipt safeguards', () => {
       source.indexOf("if (givingPhase === 'details')")
     );
 
-    expect(source).toContain("import { sendEmailVerificationEmail } from '../lib/api/auth';");
+    expect(source).toContain("import { firebaseAuthErrorCode, sendAccountEmailVerification } from '../lib/auth';");
     expect(source).toContain('const currentUserNeedsEmailVerification = Boolean(');
     expect(source).toContain('currentUser.emailVerified !== true');
     expect(source).toContain('const [emailVerificationChecking, setEmailVerificationChecking] = useState(false);');
     expect(source).toContain('const [emailVerificationRefreshKey, setEmailVerificationRefreshKey] = useState(0);');
     expect(source).toContain('const handleSendEmailVerification = async () => {');
-    expect(source).toContain('await sendEmailVerificationEmail();');
+    expect(source).toContain('await sendAccountEmailVerification(currentUser);');
+    expect(source).toContain("firebaseAuthErrorCode(error) === 'auth/too-many-requests'");
     expect(source).toContain('const handleCheckEmailVerification = async () => {');
     expect(source).toContain('await currentUser.reload();');
     expect(source).toContain('setEmailVerificationRefreshKey((current) => current + 1);');

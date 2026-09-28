@@ -1,7 +1,7 @@
 import { useRef, useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
-  ArrowLeft, Camera, Mail, Phone, FileText, CheckCircle2,
+  ArrowLeft, Camera, Mail, Phone, FileText,
   Lock, X, Eye, EyeOff, Globe, LogOut, Church, LogOut as LeaveIcon,
   Loader2, MapPin, ShieldCheck,
 } from 'lucide-react';
@@ -17,10 +17,10 @@ import { ChurchSummary } from '../domain/church';
 import { Language, ChurchMembership } from '../types';
 import { TRANSLATIONS } from '../translations';
 import { getExtraCopy } from '../localization/extra';
-import { getFirebaseAuthError, signOut } from '../lib/auth';
+import { getFirebaseAuthError, signOut, deleteAccount } from '../lib/auth';
 import { joinChurch } from '../lib/api/churches';
 import { leaveChurch, listAllChurches } from '../lib/db/churches';
-import { EMPTY_TAX_RECEIPT_ADDRESS, getUserProfile, updateUserAvatar, updateUserProfile } from '../lib/db/profile';
+import { EMPTY_TAX_RECEIPT_ADDRESS, getUserProfile, updateUserAvatar, updateUserLanguage, updateUserProfile } from '../lib/db/profile';
 import { uploadUserAvatar } from '../lib/storage/uploads';
 
 interface ProfileScreenProps {
@@ -53,6 +53,11 @@ export default function ProfileScreen({ onBack, language, onLanguageChange, user
   const [avatarUrl, setAvatarUrl] = useState(user?.photoURL ?? '');
   const [profileMessage, setProfileMessage] = useState('');
   const [passwordSaving, setPasswordSaving] = useState(false);
+  const [notificationSaving, setNotificationSaving] = useState(false);
+  const [deleteConfirm, setDeleteConfirm] = useState(false);
+  const [deletePassword, setDeletePassword] = useState('');
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState('');
   const [passwordError, setPasswordError] = useState('');
 
   useEffect(() => {
@@ -122,6 +127,7 @@ export default function ProfileScreen({ onBack, language, onLanguageChange, user
     taxReceiptLegalName: '',
     taxReceiptAddress: EMPTY_TAX_RECEIPT_ADDRESS,
   });
+  const [profileBaseline, setProfileBaseline] = useState<typeof formData | null>(null);
 
   useEffect(() => {
     if (!user) {
@@ -136,7 +142,7 @@ export default function ProfileScreen({ onBack, language, onLanguageChange, user
           return;
         }
 
-        setFormData({
+        const nextFormData = {
           fullName: profile?.displayName || user.displayName || '',
           email: user.email ?? profile?.email ?? '',
           cell: profile?.phone ?? '',
@@ -146,7 +152,9 @@ export default function ProfileScreen({ onBack, language, onLanguageChange, user
           preferredLanguage: profile?.preferredLanguage ?? language,
           taxReceiptLegalName: profile?.taxReceiptLegalName ?? '',
           taxReceiptAddress: profile?.taxReceiptAddress ?? EMPTY_TAX_RECEIPT_ADDRESS,
-        });
+        };
+        setFormData(nextFormData);
+        setProfileBaseline(nextFormData);
       })
       .catch((error) => {
         console.error('Failed to load profile:', error);
@@ -176,13 +184,6 @@ export default function ProfileScreen({ onBack, language, onLanguageChange, user
     setAvatarUrl(user?.photoURL ?? '');
   }, [user?.photoURL]);
 
-  const toggleMinistry = (ministry: string) => {
-    const newMinistries = formData.ministries.includes(ministry)
-      ? formData.ministries.filter(m => m !== ministry)
-      : [...formData.ministries, ministry];
-    setFormData({ ...formData, ministries: newMinistries });
-  };
-
   const handleSaveProfile = async () => {
     if (!user) return;
 
@@ -199,7 +200,24 @@ export default function ProfileScreen({ onBack, language, onLanguageChange, user
         await updateFirebaseProfile(user, { displayName: fullName });
       }
 
-      await updateUserProfile(user.uid, {
+      const onlyLanguageChanged = Boolean(
+        profileBaseline
+        && formData.preferredLanguage !== profileBaseline.preferredLanguage
+        && fullName === profileBaseline.fullName.trim()
+        && formData.cell.trim() === profileBaseline.cell.trim()
+        && formData.taxReceiptLegalName.trim() === profileBaseline.taxReceiptLegalName.trim()
+        && formData.taxReceiptAddress.line1.trim() === profileBaseline.taxReceiptAddress.line1.trim()
+        && formData.taxReceiptAddress.line2.trim() === profileBaseline.taxReceiptAddress.line2.trim()
+        && formData.taxReceiptAddress.city.trim() === profileBaseline.taxReceiptAddress.city.trim()
+        && formData.taxReceiptAddress.region.trim() === profileBaseline.taxReceiptAddress.region.trim()
+        && formData.taxReceiptAddress.postalCode.trim() === profileBaseline.taxReceiptAddress.postalCode.trim()
+        && formData.taxReceiptAddress.country.trim() === profileBaseline.taxReceiptAddress.country.trim()
+      );
+
+      if (onlyLanguageChanged) {
+        await updateUserLanguage(user.uid, formData.preferredLanguage);
+      } else {
+        await updateUserProfile(user.uid, {
         displayName: fullName,
         preferredLanguage: formData.preferredLanguage,
         phone: formData.cell.trim(),
@@ -208,12 +226,27 @@ export default function ProfileScreen({ onBack, language, onLanguageChange, user
         showInDirectory: formData.showInDirectory,
         taxReceiptLegalName: formData.taxReceiptLegalName,
         taxReceiptAddress: formData.taxReceiptAddress,
-      });
+        });
+      }
 
       if (formData.preferredLanguage !== language) {
         onLanguageChange(formData.preferredLanguage);
       }
 
+      setProfileBaseline({
+        ...formData,
+        fullName,
+        cell: formData.cell.trim(),
+        taxReceiptLegalName: formData.taxReceiptLegalName.trim(),
+        taxReceiptAddress: {
+          line1: formData.taxReceiptAddress.line1.trim(),
+          line2: formData.taxReceiptAddress.line2.trim(),
+          city: formData.taxReceiptAddress.city.trim(),
+          region: formData.taxReceiptAddress.region.trim(),
+          postalCode: formData.taxReceiptAddress.postalCode.trim(),
+          country: formData.taxReceiptAddress.country.trim(),
+        },
+      });
       setProfileMessage(extra.profileUpdated);
     } catch (error) {
       console.error('Failed to update profile:', error);
@@ -597,50 +630,7 @@ export default function ProfileScreen({ onBack, language, onLanguageChange, user
             </div>
           </div>
 
-          <div className="space-y-4">
-            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">{t.ministriesInvolved}</label>
-            <div className="flex flex-wrap gap-2">
-              {Object.entries(t.ministryList).map(([key, value]) => (
-                <button
-                  key={key}
-                  onClick={() => toggleMinistry(key)}
-                  className={`px-4 py-2 rounded-xl text-[10px] font-bold transition-all ${
-                    formData.ministries.includes(key)
-                      ? 'bg-[#800000] text-white shadow-md'
-                      : 'bg-gray-50 text-gray-500 border border-gray-100'
-                  }`}
-                >
-                  {value}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div className="space-y-2">
-            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">{t.spiritualBio}</label>
-            <div className="relative">
-              <FileText size={16} className="absolute left-6 top-6 text-gray-300" />
-              <textarea 
-                value={formData.description}
-                onChange={(e) => setFormData({...formData, description: e.target.value})}
-                rows={4}
-                className="w-full bg-gray-50 border-none rounded-2xl pl-14 pr-6 py-4 text-sm font-bold text-gray-900 focus:ring-2 focus:ring-[#800000]/20 transition-all resize-none"
-              />
-            </div>
-          </div>
-
-          <button 
-            onClick={() => setFormData({...formData, showInDirectory: !formData.showInDirectory})}
-            className="w-full flex items-center gap-4 p-6 bg-gray-50 rounded-3xl group hover:bg-gray-100 transition-all"
-          >
-            <div className={`w-6 h-6 rounded-lg flex items-center justify-center transition-all ${formData.showInDirectory ? 'bg-[#800000] text-white' : 'bg-white border-2 border-gray-200'}`}>
-              {formData.showInDirectory && <CheckCircle2 size={16} />}
-            </div>
-            <div className="flex-1 text-left">
-              <h4 className="text-sm font-black text-gray-900 leading-tight">{t.showInDirectory}</h4>
-              <p className="text-[10px] text-gray-400 font-bold mt-0.5">{t.showInDirectorySub}</p>
-            </div>
-          </button>
+          
 
           {/* ── My Churches (mobile only — desktop shows in left panel) ── */}
           <div className="lg:hidden space-y-3">
@@ -809,6 +799,48 @@ export default function ProfileScreen({ onBack, language, onLanguageChange, user
               <Lock size={14} />
               {t.changePassword}
             </button>
+
+            <button type="button" disabled={notificationSaving || !user?.emailVerified}
+              onClick={() => {
+                if (!user) return;
+                setNotificationSaving(true);
+                void import('../lib/notifications').then(({ requestNotificationPermission }) => requestNotificationPermission(user.uid))
+                  .then((enabled) => setProfileMessage(enabled ? 'Notifications enabled on this device.' : 'Notifications are not enabled. Check this device’s notification settings.'))
+                  .catch(() => setProfileMessage('Unable to enable notifications. Please try again.'))
+                  .finally(() => setNotificationSaving(false));
+              }}
+              className="w-full rounded-3xl border border-gray-200 bg-white px-5 py-4 text-sm font-bold disabled:opacity-50">
+              {notificationSaving ? 'Enabling notifications…' : 'Enable notifications'}
+            </button>
+
+            <button type="button" onClick={() => { setDeleteConfirm((value) => !value); setDeleteError(''); }}
+              aria-expanded={deleteConfirm} disabled={deleting}
+              className="w-full rounded-3xl border border-red-200 px-5 py-4 text-sm font-bold text-red-700">
+              Delete account
+            </button>
+            {deleteConfirm && (
+              <div className="rounded-2xl border border-red-200 bg-red-50 p-5 text-sm text-red-950">
+                <p>Your account, profile, parish memberships, and avatar will be deleted. Donation and official receipt records are retained as described in the privacy policy. This cannot be undone.</p>
+                {canChangePassword && <label className="mt-4 block font-bold">Current password
+                  <input type="password" autoComplete="current-password" value={deletePassword} onChange={(event) => setDeletePassword(event.target.value)}
+                    className="mt-2 w-full rounded-xl border border-red-200 bg-white p-3" disabled={deleting} />
+                </label>}
+                {deleteError && <p role="alert" className="mt-3">{deleteError}</p>}
+                <div className="mt-4 flex gap-3">
+                  <button type="button" disabled={deleting || (canChangePassword && !deletePassword)}
+                    onClick={() => {
+                      setDeleting(true); setDeleteError('');
+                      void deleteAccount(deletePassword).catch((error) => {
+                        const code = typeof error?.code === 'string' ? error.code : '';
+                        setDeleteError(code ? getFirebaseAuthError(code, language) : 'Unable to delete your account. Please try again.');
+                      }).finally(() => setDeleting(false));
+                    }} className="rounded-xl bg-red-700 px-4 py-3 font-bold text-white disabled:opacity-50">
+                    {deleting ? 'Deleting…' : 'Permanently delete account'}
+                  </button>
+                  <button type="button" disabled={deleting} onClick={() => { setDeleteConfirm(false); setDeletePassword(''); }} className="px-3 py-2 font-bold">Cancel</button>
+                </div>
+              </div>
+            )}
 
             <button
               onClick={signOut}

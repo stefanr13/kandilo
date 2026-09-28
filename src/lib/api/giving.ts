@@ -7,6 +7,9 @@ export async function createGivingCheckoutSession(input: {
   purpose?: string;
   anonymous?: boolean;
   donorName?: string;
+  eventId?: string;
+  eventPortalId?: string;
+  eventCampaignId?: string;
 }): Promise<{ checkoutUrl: string; givingId: string; sessionId: string }> {
   return callFunction<typeof input, { checkoutUrl: string; givingId: string; sessionId: string }>(
     'createStripeCheckoutSession',

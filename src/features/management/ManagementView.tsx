@@ -7,6 +7,7 @@ import type { StripeConnectReturnStatus } from '../../app/navigation';
 import ManagementDashboardTab from './ManagementDashboardTab';
 import ManagementEventSheet from './ManagementEventSheet';
 import ManagementEventsTab from './ManagementEventsTab';
+import ManagementEventPlatformTab from './ManagementEventPlatformTab';
 import ManagementInviteSheet from './ManagementInviteSheet';
 import ManagementMembersTab from './ManagementMembersTab';
 import ManagementNewslettersTab from './ManagementNewslettersTab';
@@ -79,6 +80,9 @@ export default function ManagementView({
       />
 
       <div className="flex-1 flex flex-col min-w-0" onClick={(event) => event.stopPropagation()}>
+        {management.churchDataError && (
+          <p role="alert" className="m-4 rounded-xl bg-red-50 p-4 text-sm text-red-800">Parish data could not be loaded. Please refresh and try again.</p>
+        )}
         {management.isAdminOrPriest && management.activeTab === 'dashboard' && (
           <ManagementDashboardTab
             activeMemberCount={management.activeMemberCount}
@@ -130,6 +134,14 @@ export default function ManagementView({
             onDeleteEvent={(eventId) => void management.handleDeleteEvent(eventId)}
             onCreateEvent={() => management.openEventEditor(null)}
             onEditEvent={management.openEventEditor}
+            language={language}
+          />
+        )}
+
+        {management.isAdminOrPriest && management.activeTab === 'eventPlatform' && (
+          <ManagementEventPlatformTab
+            churchId={churchId}
+            isAdminOrPriest={management.isAdminOrPriest}
             language={language}
           />
         )}

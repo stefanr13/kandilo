@@ -91,6 +91,91 @@ import {
   voidSingleTaxReceiptForGiving,
 } from './operations';
 
+const EVENT_SLUG_PATTERN = /^[a-z0-9][a-z0-9-]{1,62}[a-z0-9]$/;
+
+function optionalEventSlug(value: unknown, field: string): string {
+  const slug = optionalTrimmedString(value, 128).toLowerCase();
+  if (!slug) {
+    return '';
+  }
+  if (!EVENT_SLUG_PATTERN.test(slug)) {
+    throw new HttpsError('invalid-argument', `${field} is not valid.`);
+  }
+  return slug;
+}
+
+function optionalEventCampaignId(value: unknown): string {
+  const campaignId = optionalTrimmedString(value, 128);
+  if (!campaignId) {
+    return '';
+  }
+  if (!/^[A-Za-z0-9_-]{1,128}$/.test(campaignId)) {
+    throw new HttpsError('invalid-argument', 'eventCampaignId is not valid.');
+  }
+  return campaignId;
+}
+
+async function assertEventDonationTarget(input: {
+  churchId: string;
+  eventId: string;
+  eventCampaignId: string;
+}): Promise<{
+  eventId: string;
+  eventTitle: string;
+  eventCampaignId: string;
+  eventCampaignTitle: string;
+}> {
+  let eventId = input.eventId;
+  let eventCampaignTitle = '';
+
+  if (input.eventCampaignId) {
+    const campaignSnap = await db.collection('eventCampaigns').doc(input.eventCampaignId).get();
+    const campaign = campaignSnap.data();
+    if (
+      !campaignSnap.exists
+      || !campaign
+      || campaign.active !== true
+      || typeof campaign.eventId !== 'string'
+      || !campaign.eventId
+    ) {
+      throw new HttpsError('failed-precondition', 'This event campaign is not accepting donations.');
+    }
+    if (eventId && campaign.eventId !== eventId) {
+      throw new HttpsError('invalid-argument', 'Event campaign does not belong to this event.');
+    }
+    eventId = campaign.eventId;
+    eventCampaignTitle = optionalTrimmedString(campaign.title, 120);
+  }
+
+  if (!eventId) {
+    return {
+      eventId: '',
+      eventTitle: '',
+      eventCampaignId: '',
+      eventCampaignTitle: '',
+    };
+  }
+
+  const eventSnap = await db.collection('eventPortals').doc(eventId).get();
+  const event = eventSnap.data();
+  if (
+    !eventSnap.exists
+    || !event
+    || event.churchId !== input.churchId
+    || event.status !== 'published'
+    || event.campaignsEnabled !== true
+  ) {
+    throw new HttpsError('failed-precondition', 'This event is not accepting donations.');
+  }
+
+  return {
+    eventId,
+    eventTitle: optionalTrimmedString(event.title, 120),
+    eventCampaignId: input.eventCampaignId,
+    eventCampaignTitle,
+  };
+}
+
 export const createStripeCheckoutSession = onCall(
   { ...replayProtectedCallableOptions, secrets: ['STRIPE_SECRET_KEY'] },
   async (request) => {
@@ -123,6 +208,8 @@ export const createStripeCheckoutSession = onCall(
     assertMaxLength(purpose, 200, 'purpose');
     const anonymous =
       input.anonymous === undefined ? false : assertBoolean(input.anonymous, 'anonymous');
+    const requestedEventId = optionalEventSlug(input.eventPortalId ?? input.eventId, 'eventPortalId');
+    const requestedEventCampaignId = optionalEventCampaignId(input.eventCampaignId);
 
     const customerEmail =
       typeof request.auth!.token.email === 'string' ? request.auth!.token.email : undefined;
@@ -151,6 +238,11 @@ export const createStripeCheckoutSession = onCall(
       const donorProfileSnap = await db.collection('users').doc(request.auth!.uid).get();
       requiredDonorTaxReceiptProfile(donorProfileSnap.data() ?? {});
     }
+    const eventDonationTarget = await assertEventDonationTarget({
+      churchId,
+      eventId: requestedEventId,
+      eventCampaignId: requestedEventCampaignId,
+    });
     let stripe: ReturnType<typeof getStripe>;
     let stripeConnectDestination = '';
     try {
@@ -202,6 +294,8 @@ export const createStripeCheckoutSession = onCall(
         purpose,
         anonymous: anonymous ? 'true' : 'false',
         stripeSettlement: stripeConnectDestination ? STRIPE_CONNECT_SETTLEMENT : STRIPE_PLATFORM_SETTLEMENT,
+        ...(eventDonationTarget.eventId ? { eventPortalId: eventDonationTarget.eventId } : {}),
+        ...(eventDonationTarget.eventCampaignId ? { eventCampaignId: eventDonationTarget.eventCampaignId } : {}),
       };
       const paymentIntentData: {
         metadata: typeof stripeMetadata;
@@ -219,8 +313,8 @@ export const createStripeCheckoutSession = onCall(
           mode: 'payment',
           payment_method_types: ['card'],
           submit_type: 'donate',
-          success_url: `${appUrl}/?giving=success&churchId=${encodeURIComponent(churchId)}&givingId=${givingRef.id}&session_id={CHECKOUT_SESSION_ID}`,
-          cancel_url: `${appUrl}/?giving=cancel&churchId=${encodeURIComponent(churchId)}&givingId=${givingRef.id}`,
+          success_url: `${appUrl}/?giving=success&churchId=${encodeURIComponent(churchId)}&givingId=${givingRef.id}${eventDonationTarget.eventId ? `&eventId=${encodeURIComponent(eventDonationTarget.eventId)}` : ''}&session_id={CHECKOUT_SESSION_ID}`,
+          cancel_url: `${appUrl}/?giving=cancel&churchId=${encodeURIComponent(churchId)}&givingId=${givingRef.id}${eventDonationTarget.eventId ? `&eventId=${encodeURIComponent(eventDonationTarget.eventId)}` : ''}`,
           customer_email: customerEmail,
           client_reference_id: givingRef.id,
           metadata: stripeMetadata,
@@ -256,6 +350,14 @@ export const createStripeCheckoutSession = onCall(
         stripeCheckoutSessionExpiresAt: timestampFromStripeSeconds(session.expires_at),
         stripeSettlement: stripeConnectDestination ? STRIPE_CONNECT_SETTLEMENT : STRIPE_PLATFORM_SETTLEMENT,
         stripeConnectTransferConfigured: Boolean(stripeConnectDestination),
+        ...(eventDonationTarget.eventId ? {
+          eventPortalId: eventDonationTarget.eventId,
+          eventPortalTitle: eventDonationTarget.eventTitle,
+        } : {}),
+        ...(eventDonationTarget.eventCampaignId ? {
+          eventCampaignId: eventDonationTarget.eventCampaignId,
+          eventCampaignTitle: eventDonationTarget.eventCampaignTitle,
+        } : {}),
         createdAt: FieldValue.serverTimestamp(),
         updatedAt: FieldValue.serverTimestamp(),
       }, { merge: true });
@@ -1347,6 +1449,8 @@ async function processCompletedGivingTaxReceiptFollowUp(
       });
     }
   } catch (taxReceiptError) {
+    // A concurrent manual/background sender owns delivery and its final state.
+    if (taxReceiptError instanceof HttpsError && taxReceiptError.code === 'aborted') return;
     const latestAfterFailure = await givingRef.get().catch(() => null);
     const latestGiving = latestAfterFailure?.data();
     if (latestGiving && !completedGivingNeedsTaxReceiptFollowUp(latestGiving)) {
@@ -1386,7 +1490,7 @@ async function processCompletedGivingTaxReceiptFollowUp(
     if (!isExpectedSetupGap) {
       console.error('Tax receipt auto-issue failed:', sanitizedErrorContext(taxReceiptError));
     }
-    const givingUpdate: Record<string, unknown> = {
+    const givingUpdate: FirebaseFirestore.UpdateData<FirebaseFirestore.DocumentData> = {
       taxReceiptStatus: isUnsupportedJurisdiction
         ? 'not_configured'
         : isReceiptSetupUnavailable
@@ -1406,12 +1510,17 @@ async function processCompletedGivingTaxReceiptFollowUp(
     givingUpdate.taxReceiptEmailError = isRecoverableIssuanceGap
       ? FieldValue.delete()
       : emailDeliveryFailureCode || FieldValue.delete();
-    await givingRef.update(givingUpdate).catch(() => undefined);
+    await db.runTransaction(async (tx) => {
+      const current = (await tx.get(givingRef)).data();
+      if (current && completedGivingNeedsTaxReceiptFollowUp(current)) {
+        tx.update(givingRef, givingUpdate);
+      }
+    });
   }
 }
 
 export const onGivingCompleted = onDocumentUpdated(
-  { region: FIRESTORE_REGION, document: 'giving/{givingId}', secrets: ['RESEND_API_KEY'] },
+  { region: FIRESTORE_REGION, document: 'giving/{givingId}', secrets: ['RESEND_API_KEY'], retry: true },
   async (event) => {
     const after = event.data?.after.data();
     if (!after) return;
@@ -1426,20 +1535,27 @@ export const onGivingCompleted = onDocumentUpdated(
       return;
     }
 
-    const claimed = await db.runTransaction(async (tx) => {
+    // Only the completion event delivers the confirmation. Its automatic event
+    // retries retain the same before/after snapshots; our bookkeeping updates do not.
+    const completionEvent = event.data?.before.data()?.status !== 'completed';
+    let deliveryRetryError: unknown;
+    const claimed = completionEvent && await db.runTransaction(async (tx) => {
       const snap = await tx.get(givingRef);
       const current = snap.data();
       if (!current || current.status !== 'completed' || current.receiptEmailSentAt) {
         return false;
       }
 
+      if ((current.receiptEmailAttempts ?? 0) >= 5) return false;
+
       const sendingAt = current.receiptEmailSendingAt;
       if (sendingAt instanceof Timestamp && Date.now() - sendingAt.toMillis() < RECEIPT_CLAIM_TIMEOUT_MS) {
-        return false;
+        throw new Error('Donation confirmation delivery is already in progress.');
       }
 
       tx.update(givingRef, {
         receiptEmailSendingAt: FieldValue.serverTimestamp(),
+        receiptEmailAttempts: FieldValue.increment(1),
         receiptEmailError: FieldValue.delete(),
       });
       return true;
@@ -1502,7 +1618,7 @@ export const onGivingCompleted = onDocumentUpdated(
                   subject: emailMessage.subject,
                   html: emailMessage.html,
                   text: emailMessage.text,
-                });
+                }, { idempotencyKey: `donation-confirmation-${givingRef.id}` });
                 if (response.error) {
                   console.error('Giving receipt email provider rejected request.', {
                     errorName: response.error.name ?? 'ResendError',
@@ -1517,6 +1633,7 @@ export const onGivingCompleted = onDocumentUpdated(
                 });
               } catch (receiptError) {
                 console.error('Giving receipt email failed:', sanitizedErrorContext(receiptError));
+                deliveryRetryError = receiptError;
                 const errorCode = resendConfigurationErrorCode(receiptError) ?? 'receipt_send_failed';
                 await givingRef.update({
                   receiptEmailSendingAt: FieldValue.delete(),
@@ -1526,6 +1643,7 @@ export const onGivingCompleted = onDocumentUpdated(
             }
           }
         } catch (err) {
+          deliveryRetryError = err;
           console.error('Giving completion follow-up failed:', sanitizedErrorContext(err));
           await givingRef.update({
             receiptEmailSendingAt: FieldValue.delete(),
@@ -1539,5 +1657,6 @@ export const onGivingCompleted = onDocumentUpdated(
     if (completedGivingNeedsTaxReceiptFollowUp(latestGiving)) {
       await processCompletedGivingTaxReceiptFollowUp(givingRef, latestGiving);
     }
+    if (deliveryRetryError) throw deliveryRetryError;
   }
 );

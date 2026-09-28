@@ -3,8 +3,13 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    function isVerifiedNonAnonymous() {
+    function isSignedInNonAnonymous() {
       return request.auth != null
+        && request.auth.token.firebase.sign_in_provider != 'anonymous';
+    }
+
+    function isVerifiedNonAnonymous() {
+      return isSignedInNonAnonymous()
         && request.auth.token.email_verified == true
         && request.auth.token.firebase.sign_in_provider != 'anonymous';
     }
@@ -217,6 +222,362 @@ service cloud.firestore {
       return value == null || value is bool;
     }
 
+    function validOptionalTimestamp(value) {
+      return value == null || value is timestamp;
+    }
+
+    function validEventSlug(value) {
+      return value is string
+        && value.matches('^[a-z0-9][a-z0-9-]{1,62}[a-z0-9]$');
+    }
+
+    function validEventSetupChecklist(value) {
+      return value is map
+        && value.keys().hasOnly([
+          'basics',
+          'tickets',
+          'schedule',
+          'foodDrink',
+          'campaigns',
+          'staff',
+          'payments',
+        ])
+        && value.basics is bool
+        && value.tickets is bool
+        && value.schedule is bool
+        && value.foodDrink is bool
+        && value.campaigns is bool
+        && value.staff is bool
+        && value.payments is bool;
+    }
+
+    function validPublicEventPortal(data, eventId) {
+      return data.keys().hasAll([
+          'organizationId',
+          'organizationType',
+          'churchId',
+          'title',
+          'slug',
+          'status',
+          'startsAt',
+          'endsAt',
+          'venueName',
+          'venueAddress',
+          'heroImageURL',
+          'description',
+          'modules',
+          'focusEnabled',
+          'focusStartsAt',
+          'focusEndsAt',
+          'ticketsEnabled',
+          'gateScanningEnabled',
+          'reEntryEnabled',
+          'foodDrinkEnabled',
+          'foodOrderingEnabled',
+          'campaignsEnabled',
+          'setupChecklist',
+        ])
+        && data.keys().hasOnly([
+          'organizationId',
+          'organizationType',
+          'churchId',
+          'title',
+          'slug',
+          'status',
+          'startsAt',
+          'endsAt',
+          'venueName',
+          'venueAddress',
+          'heroImageURL',
+          'description',
+          'modules',
+          'focusEnabled',
+          'focusStartsAt',
+          'focusEndsAt',
+          'ticketsEnabled',
+          'gateScanningEnabled',
+          'reEntryEnabled',
+          'foodDrinkEnabled',
+          'foodOrderingEnabled',
+          'campaignsEnabled',
+          'setupChecklist',
+          'createdAt',
+          'updatedAt',
+        ])
+        && data.slug == eventId
+        && validEventSlug(data.slug)
+        && data.status == 'published'
+        && isActiveChurch(data.churchId)
+        && validString(data.organizationId, 128)
+        && data.organizationType == 'church'
+        && validString(data.churchId, 128)
+        && validString(data.title, 180)
+        && validString(data.description, 5000)
+        && validString(data.venueName, 180)
+        && validString(data.venueAddress, 300)
+        && validOptionalUrl(data.heroImageURL)
+        && data.startsAt is timestamp
+        && data.endsAt is timestamp
+        && data.endsAt > data.startsAt
+        && data.modules is list
+        && data.modules.size() <= 5
+        && data.focusEnabled is bool
+        && validOptionalTimestamp(data.focusStartsAt)
+        && validOptionalTimestamp(data.focusEndsAt)
+        && data.ticketsEnabled is bool
+        && data.gateScanningEnabled is bool
+        && data.reEntryEnabled is bool
+        && data.foodDrinkEnabled is bool
+        && data.foodOrderingEnabled is bool
+        && data.campaignsEnabled is bool
+        && validEventSetupChecklist(data.setupChecklist)
+        && validOptionalTimestamp(data.get('createdAt', null))
+        && validOptionalTimestamp(data.get('updatedAt', null));
+    }
+
+    function validPublicEventTicketTier(data) {
+      return data.keys().hasAll([
+          'eventId',
+          'name',
+          'description',
+          'priceCents',
+          'currency',
+          'capacity',
+          'perOrderLimit',
+          'saleStartsAt',
+          'saleEndsAt',
+          'active',
+        ])
+        && data.keys().hasOnly([
+          'eventId',
+          'name',
+          'description',
+          'priceCents',
+          'currency',
+          'capacity',
+          'perOrderLimit',
+          'saleStartsAt',
+          'saleEndsAt',
+          'active',
+          'createdAt',
+          'updatedAt',
+        ])
+        && validString(data.eventId, 128)
+        && validString(data.name, 120)
+        && validOptionalString(data.description, 500)
+        && data.priceCents is int
+        && data.priceCents >= 0
+        && data.priceCents <= 10000000
+        && data.currency in ['CAD', 'USD']
+        && (data.capacity == null || (data.capacity is int && data.capacity >= 0 && data.capacity <= 1000000))
+        && data.perOrderLimit is int
+        && data.perOrderLimit >= 1
+        && data.perOrderLimit <= 50
+        && validOptionalTimestamp(data.saleStartsAt)
+        && validOptionalTimestamp(data.saleEndsAt)
+        && data.active == true;
+    }
+
+    function validPublicEventPerformer(data) {
+      return data.keys().hasAll([
+          'eventId',
+          'name',
+          'subtitle',
+          'description',
+          'imageURL',
+          'links',
+          'published',
+        ])
+        && data.keys().hasOnly([
+          'eventId',
+          'name',
+          'subtitle',
+          'description',
+          'imageURL',
+          'links',
+          'published',
+          'createdAt',
+          'updatedAt',
+        ])
+        && validString(data.eventId, 128)
+        && validString(data.name, 160)
+        && validOptionalString(data.subtitle, 200)
+        && validOptionalString(data.description, 3000)
+        && validOptionalUrl(data.imageURL)
+        && data.links is list
+        && data.links.size() <= 10
+        && data.published == true;
+    }
+
+    function validPublicEventScheduleItem(data) {
+      return data.keys().hasAll([
+          'eventId',
+          'title',
+          'description',
+          'startTime',
+          'endTime',
+          'stage',
+          'location',
+          'performerIds',
+          'imageURL',
+          'published',
+        ])
+        && data.keys().hasOnly([
+          'eventId',
+          'title',
+          'description',
+          'startTime',
+          'endTime',
+          'stage',
+          'location',
+          'performerIds',
+          'imageURL',
+          'published',
+          'createdAt',
+          'updatedAt',
+        ])
+        && validString(data.eventId, 128)
+        && validString(data.title, 180)
+        && validOptionalString(data.description, 3000)
+        && data.startTime is timestamp
+        && data.endTime is timestamp
+        && data.endTime >= data.startTime
+        && validOptionalString(data.stage, 120)
+        && validOptionalString(data.location, 180)
+        && data.performerIds is list
+        && data.performerIds.size() <= 30
+        && validOptionalUrl(data.imageURL)
+        && data.published == true;
+    }
+
+    function validPublicEventMenuItem(data) {
+      return data.keys().hasAll([
+          'eventId',
+          'category',
+          'name',
+          'description',
+          'priceCents',
+          'currency',
+          'available',
+          'soldOut',
+          'maxPerOrder',
+          'inventoryMode',
+          'quantityAvailable',
+          'quantitySold',
+          'sortOrder',
+        ])
+        && data.keys().hasOnly([
+          'eventId',
+          'churchId',
+          'category',
+          'name',
+          'description',
+          'priceCents',
+          'currency',
+          'available',
+          'soldOut',
+          'maxPerOrder',
+          'inventoryMode',
+          'quantityAvailable',
+          'quantitySold',
+          'sortOrder',
+          'createdAt',
+          'updatedAt',
+        ])
+        && validString(data.eventId, 128)
+        && validOptionalString(data.get('churchId', null), 128)
+        && validString(data.category, 80)
+        && validString(data.name, 140)
+        && validOptionalString(data.description, 500)
+        && data.priceCents is int
+        && data.priceCents >= 0
+        && data.priceCents <= 10000000
+        && data.currency in ['CAD', 'USD']
+        && data.available == true
+        && data.soldOut is bool
+        && data.maxPerOrder is int
+        && data.maxPerOrder >= 1
+        && data.maxPerOrder <= 99
+        && data.inventoryMode in ['unlimited', 'tracked']
+        && (
+          (data.inventoryMode == 'unlimited' && data.quantityAvailable == null)
+          || (
+            data.inventoryMode == 'tracked'
+            && data.quantityAvailable is int
+            && data.quantityAvailable >= 0
+            && data.quantityAvailable <= 1000000
+          )
+        )
+        && data.quantitySold is int
+        && data.quantitySold >= 0
+        && data.quantitySold <= 1000000
+        && data.sortOrder is int
+        && data.sortOrder >= -100000
+        && data.sortOrder <= 100000
+        && validOptionalTimestamp(data.get('createdAt', null))
+        && validOptionalTimestamp(data.get('updatedAt', null));
+    }
+
+    function validPublicEventCampaign(data) {
+      return data.keys().hasAll([
+          'eventId',
+          'title',
+          'description',
+          'suggestedAmountCents',
+          'active',
+        ])
+        && data.keys().hasOnly([
+          'eventId',
+          'title',
+          'description',
+          'suggestedAmountCents',
+          'active',
+          'createdAt',
+          'updatedAt',
+        ])
+        && validString(data.eventId, 128)
+        && validString(data.title, 180)
+        && validOptionalString(data.description, 1000)
+        && data.suggestedAmountCents is int
+        && data.suggestedAmountCents >= 0
+        && data.suggestedAmountCents <= 10000000
+        && data.active == true;
+    }
+
+    function validPublicEventAnnouncement(data) {
+      return data.keys().hasAll([
+          'eventId',
+          'churchId',
+          'title',
+          'body',
+          'priority',
+          'channels',
+          'status',
+          'sentAt',
+        ])
+        && data.keys().hasOnly([
+          'eventId',
+          'churchId',
+          'title',
+          'body',
+          'priority',
+          'channels',
+          'status',
+          'sentAt',
+          'sentByName',
+        ])
+        && validString(data.eventId, 128)
+        && validString(data.churchId, 128)
+        && validString(data.title, 120)
+        && validString(data.body, 500)
+        && data.priority in ['info', 'urgent', 'offer']
+        && data.channels is list
+        && data.channels.size() <= 3
+        && data.status == 'sent'
+        && data.sentAt is timestamp
+        && validOptionalString(data.get('sentByName', null), 120);
+    }
+
     function validOptionalUrl(value) {
       return value == null
         || value == ''
@@ -291,6 +652,7 @@ service cloud.firestore {
           'createdAt',
         ])
         && validUserProfileBase()
+        && request.resource.data.fcmTokens.size() == 0
         && request.resource.data.createdAt == request.time;
     }
 
@@ -307,6 +669,8 @@ service cloud.firestore {
         && validOptionalBool(request.resource.data.showInDirectory)
         && validTaxReceiptProfileFields(request.resource.data)
         && validOptionalFcmTokens(request.resource.data.fcmTokens)
+        && (request.resource.data.fcmTokens == resource.data.fcmTokens
+          || request.resource.data.fcmTokens == [])
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
           'displayName',
           'photoURL',
@@ -404,6 +768,18 @@ service cloud.firestore {
     function eventBelongsToChurch(eventId, churchId) {
       return exists(/databases/$(database)/documents/events/$(eventId))
         && get(/databases/$(database)/documents/events/$(eventId)).data.churchId == churchId;
+    }
+
+    function eventPortalPublished(eventId) {
+      return exists(/databases/$(database)/documents/eventPortals/$(eventId))
+        && validPublicEventPortal(
+          get(/databases/$(database)/documents/eventPortals/$(eventId)).data,
+          eventId
+        );
+    }
+
+    function eventPortalChurchId(eventId) {
+      return get(/databases/$(database)/documents/eventPortals/$(eventId)).data.churchId;
     }
 
     function checkInMemberMatches(churchId, userId) {
@@ -600,15 +976,17 @@ service cloud.firestore {
     // ─── Users ────────────────────────────────────────────────────────────────
 
     match /users/{userId} {
-      allow read: if isVerifiedNonAnonymous() && isOwner(userId);
-      allow create: if isVerifiedNonAnonymous() && isOwner(userId) && validUserProfileCreate();
-      allow update: if isVerifiedNonAnonymous() && isOwner(userId) && validUserProfileUpdate();
+      allow read: if isSignedInNonAnonymous() && isOwner(userId);
+      allow create: if isSignedInNonAnonymous() && isOwner(userId) && validUserProfileCreate();
+      allow update: if isSignedInNonAnonymous() && isOwner(userId) && validUserProfileUpdate();
       allow delete: if false;
 
       match /churchMemberships/{churchId} {
-        allow read: if (isVerifiedNonAnonymous() && isOwner(userId)) || isSuperAdmin();
+        allow read: if (isSignedInNonAnonymous() && isOwner(userId)) || isSuperAdmin();
         allow create: if false;
-        allow delete: if isVerifiedNonAnonymous() && isOwner(userId);
+        allow delete: if isVerifiedNonAnonymous() && isOwner(userId)
+          && get(/databases/$(database)/documents/churches/$(churchId)/members/$(userId)).data.status == 'active'
+          && !existsAfter(/databases/$(database)/documents/churches/$(churchId)/members/$(userId));
         allow update: if isVerifiedNonAnonymous() && (
           (isPriest(churchId) && priestMayUpdateMembershipFanout(userId))
           || (isAdmin(churchId) && adminMayUpdateMembershipStatusOnly(userId))
@@ -619,7 +997,7 @@ service cloud.firestore {
     // ─── Churches ─────────────────────────────────────────────────────────────
 
     match /churches/{churchId} {
-      allow read: if isSuperAdmin() || (isVerifiedNonAnonymous() && resource.data.isActive == true);
+      allow read: if isSuperAdmin() || resource.data.isActive == true;
       allow create: if false;
 
       // Client-side church edits are limited to low-risk feature toggles.
@@ -631,7 +1009,7 @@ service cloud.firestore {
       match /members/{userId} {
         allow read: if isSuperAdmin()
           || (isVerifiedNonAnonymous() && isAdmin(churchId))
-          || (isVerifiedNonAnonymous() && isOwner(userId))
+          || (isSignedInNonAnonymous() && isOwner(userId))
           || (
             isVerifiedNonAnonymous()
             && isMember(churchId)
@@ -647,7 +1025,9 @@ service cloud.firestore {
           || (isAdmin(churchId) && adminMayUpdateMemberStatusOnly(userId))
           || ownerMayUpdateOwnMemberProfile(userId)
         );
-        allow delete: if isVerifiedNonAnonymous() && isOwner(userId);
+        allow delete: if isVerifiedNonAnonymous() && isOwner(userId)
+          && resource.data.status == 'active'
+          && !existsAfter(/databases/$(database)/documents/users/$(userId)/churchMemberships/$(churchId));
       }
 
       // ─── Church Posts ──────────────────────────────────────────────────────
@@ -683,6 +1063,97 @@ service cloud.firestore {
       allow delete: if isVerifiedNonAnonymous() && isAdmin(resource.data.churchId);
     }
 
+    // ─── Kandilo Events Platform ─────────────────────────────────────────────
+
+    match /eventPortals/{eventId} {
+      allow read: if validPublicEventPortal(resource.data, eventId)
+        || isSuperAdmin()
+        || (isVerifiedNonAnonymous() && isAdmin(resource.data.churchId));
+      // Event setup writes go through saveEventPortalSetup so slug uniqueness,
+      // schema validation, and Featured Event locking are enforced transactionally.
+      allow create, update: if false;
+      allow delete: if false;
+    }
+
+    match /eventTicketTiers/{tierId} {
+      allow read: if (validPublicEventTicketTier(resource.data) && eventPortalPublished(resource.data.eventId))
+        || isSuperAdmin()
+        || (isVerifiedNonAnonymous() && isAdmin(eventPortalChurchId(resource.data.eventId)));
+      allow create, update: if false;
+      allow delete: if false;
+    }
+
+    match /eventPerformers/{performerId} {
+      allow read: if (validPublicEventPerformer(resource.data) && eventPortalPublished(resource.data.eventId))
+        || isSuperAdmin()
+        || (isVerifiedNonAnonymous() && isAdmin(eventPortalChurchId(resource.data.eventId)));
+      allow create, update: if false;
+      allow delete: if false;
+    }
+
+    match /eventScheduleItems/{scheduleItemId} {
+      allow read: if (validPublicEventScheduleItem(resource.data) && eventPortalPublished(resource.data.eventId))
+        || isSuperAdmin()
+        || (isVerifiedNonAnonymous() && isAdmin(eventPortalChurchId(resource.data.eventId)));
+      allow create, update: if false;
+      allow delete: if false;
+    }
+
+    match /eventMenuItems/{menuItemId} {
+      allow read: if (validPublicEventMenuItem(resource.data) && eventPortalPublished(resource.data.eventId))
+        || isSuperAdmin()
+        || (isVerifiedNonAnonymous() && isAdmin(eventPortalChurchId(resource.data.eventId)));
+      allow create, update: if false;
+      allow delete: if false;
+    }
+
+    match /eventCampaigns/{campaignId} {
+      allow read: if (validPublicEventCampaign(resource.data) && eventPortalPublished(resource.data.eventId))
+        || isSuperAdmin()
+        || (isVerifiedNonAnonymous() && isAdmin(eventPortalChurchId(resource.data.eventId)));
+      allow create, update: if false;
+      allow delete: if false;
+    }
+
+    match /eventAnnouncements/{announcementId} {
+      allow read: if (validPublicEventAnnouncement(resource.data) && eventPortalPublished(resource.data.eventId))
+        || isSuperAdmin()
+        || (isVerifiedNonAnonymous() && isAdmin(eventPortalChurchId(resource.data.eventId)));
+      // Announcement delivery is backend-only so email/push/audit fields cannot be forged by clients.
+      allow create, update, delete: if false;
+    }
+
+    match /eventAnnouncementDelivery/{announcementId} {
+      allow read, write: if false;
+    }
+
+    match /eventFeaturedByChurch/{churchId} {
+      allow read, write: if false;
+    }
+
+    match /eventTickets/{ticketId} {
+      allow read: if isVerifiedNonAnonymous() && isAdmin(eventPortalChurchId(resource.data.eventId));
+      allow create, update, delete: if false;
+    }
+
+    match /eventTicketPrivate/{ticketId} {
+      allow read, write: if false;
+    }
+
+    match /eventTicketScans/{scanId} {
+      allow read: if isVerifiedNonAnonymous() && isAdmin(eventPortalChurchId(resource.data.eventId));
+      allow create, update, delete: if false;
+    }
+
+    match /eventOrders/{orderId} {
+      allow read: if isVerifiedNonAnonymous() && isAdmin(eventPortalChurchId(resource.data.eventId));
+      allow create, update, delete: if false;
+    }
+
+    match /eventOrderPrivate/{orderId} {
+      allow read, write: if false;
+    }
+
     // ─── Newsletters ──────────────────────────────────────────────────────────
 
     match /newsletters/{newsletterId} {
@@ -705,9 +1176,9 @@ service cloud.firestore {
     // ─── Invitations ──────────────────────────────────────────────────────────
 
     match /invitations/{invitationId} {
-      allow read: if isSuperAdmin() || (isVerifiedNonAnonymous() && (
+      allow read: if isSuperAdmin() || (isSignedInNonAnonymous() && (
         (request.auth.token.email == resource.data.inviteeEmail)
-        || isAdmin(resource.data.churchId)
+        || (isVerifiedNonAnonymous() && isAdmin(resource.data.churchId))
       ));
       // Invitation lifecycle is enforced exclusively via Cloud Functions.
       allow create, update, delete: if false;
@@ -808,8 +1279,9 @@ service cloud.firestore {
     // ─── Event Check-ins ─────────────────────────────────────────────────────
 
     match /eventCheckIns/{checkInId} {
-      allow read: if isSuperAdmin() || (isVerifiedNonAnonymous() && (
-        isAdmin(resource.data.churchId) || isOwner(resource.data.userId)
+      allow read: if isSuperAdmin() || (isSignedInNonAnonymous() && (
+          (isVerifiedNonAnonymous() && isAdmin(resource.data.churchId))
+          || (isSignedInNonAnonymous() && isOwner(resource.data.userId))
       ));
       allow create: if isVerifiedNonAnonymous()
         && isAdmin(request.resource.data.churchId)

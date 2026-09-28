@@ -1,5 +1,6 @@
 import { FieldValue } from 'firebase-admin/firestore';
 import { isFunctionsEmulatorTestMode } from './emulatorTest';
+import { createHash } from 'node:crypto';
 import { db, fcm } from './firebase';
 
 const INVALID_FCM_ERROR_CODES = new Set([
@@ -73,7 +74,21 @@ export async function notifyChurchMembers(
     }
   }
 
-  const tokens = [...new Set(allTokens.filter(Boolean))];
+  const candidates = [...new Set(allTokens.filter(Boolean))];
+  const recipients = new Set(uids);
+  const tokens: string[] = [];
+  for (let i = 0; i < candidates.length; i += 500) {
+    const chunk = candidates.slice(i, i + 500);
+    const owners = await db.getAll(...chunk.map((token) => db.collection('pushTokenOwners')
+      .doc(createHash('sha256').update(token).digest('hex'))));
+    owners.forEach((owner, index) => {
+      const uid = owner.data()?.userId;
+      if (typeof uid === 'string' && recipients.has(uid)) {
+        tokens.push(chunk[index]);
+        tokenOwners.set(chunk[index], uid);
+      }
+    });
+  }
   if (tokens.length === 0) return;
 
   const staleTokensByUser = new Map<string, string[]>();

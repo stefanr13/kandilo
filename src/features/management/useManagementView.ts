@@ -411,7 +411,7 @@ export function useManagementView({
     );
   }, [churchId, copy.receipts.loadError, needsReceipts]);
 
-  const { members, events, newsletters, membersLoading, eventsLoading, newslettersLoading } = useChurchData(churchId, {
+  const { members, events, newsletters, membersLoading, eventsLoading, newslettersLoading, error: churchDataError } = useChurchData(churchId, {
     members: needsMembers,
     events: needsEvents,
     newsletters: needsNewsletters,
@@ -951,6 +951,7 @@ export function useManagementView({
   };
 
   return {
+    churchDataError,
     activeTab,
     searchQuery,
     activeMemberMenu,

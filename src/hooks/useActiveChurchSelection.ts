@@ -7,9 +7,17 @@ interface ActiveChurchSelection {
   setActiveChurch: (church: Church) => void;
 }
 
-export function useActiveChurchSelection(churches: Church[]): ActiveChurchSelection {
+interface UseActiveChurchSelectionOptions {
+  autoSelectFirst?: boolean;
+}
+
+export function useActiveChurchSelection(
+  churches: Church[],
+  options: UseActiveChurchSelectionOptions = {}
+): ActiveChurchSelection {
   const [activeChurch, setActiveChurch] = useState<Church | null>(null);
   const activeChurchId = activeChurch?.id ?? null;
+  const { autoSelectFirst = true } = options;
 
   useEffect(() => {
     if (churches.length === 0) {
@@ -19,10 +27,16 @@ export function useActiveChurchSelection(churches: Church[]): ActiveChurchSelect
       return;
     }
 
-    if (!activeChurchId || !churches.some((church) => church.id === activeChurchId)) {
+    const hasSelectedChurch = churches.some((church) => church.id === activeChurchId);
+    if (activeChurchId && !hasSelectedChurch) {
+      setActiveChurch(null);
+      return;
+    }
+
+    if (!activeChurchId && autoSelectFirst) {
       setActiveChurch(churches[0]);
     }
-  }, [churches, activeChurchId]);
+  }, [churches, activeChurchId, autoSelectFirst]);
 
   return { activeChurch, activeChurchId, setActiveChurch };
 }

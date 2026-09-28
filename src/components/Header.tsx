@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Church, X, Check } from 'lucide-react';
+import { CalendarDays, Church, X, Check } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Church as ChurchType, Language } from '../types';
 import { TRANSLATIONS } from '../translations';
@@ -10,9 +10,19 @@ interface HeaderProps {
   activeChurch?: ChurchType;
   onChurchChange?: (church: ChurchType) => void;
   language: Language;
+  activeEventTitle?: string | null;
+  onReturnToEvent?: () => void;
 }
 
-export default function Header({ onProfileClick, userChurches = [], activeChurch, onChurchChange, language }: HeaderProps) {
+export default function Header({
+  onProfileClick,
+  userChurches = [],
+  activeChurch,
+  onChurchChange,
+  language,
+  activeEventTitle,
+  onReturnToEvent,
+}: HeaderProps) {
   const [showChurchSwitcher, setShowChurchSwitcher] = useState(false);
   const t = TRANSLATIONS[language].common;
 
@@ -20,7 +30,7 @@ export default function Header({ onProfileClick, userChurches = [], activeChurch
 
   return (
     <>
-      <header className="flex items-center justify-between px-6 lg:px-10 pb-4 bg-white sticky top-0 z-40 border-b border-gray-50" style={{ paddingTop: 'calc(env(safe-area-inset-top) + 1.25rem)' }}>
+      <header className="flex items-center justify-between px-6 lg:px-8 pb-3 bg-white sticky top-0 z-40 border-b border-gray-50" style={{ paddingTop: 'calc(env(safe-area-inset-top) + 1rem)' }}>
         {/* Logo — visible on mobile; hidden on desktop (sidebar shows it) */}
         <div className="flex items-center gap-3 lg:hidden">
           <div className="w-10 h-10 flex items-center justify-center overflow-hidden bg-[#800000] rounded-xl shadow-lg shadow-red-900/20">
@@ -29,51 +39,20 @@ export default function Header({ onProfileClick, userChurches = [], activeChurch
           <span className="font-black text-xl tracking-tighter uppercase text-gray-900 leading-none">Kandilo</span>
         </div>
 
-        <div className="hidden lg:flex items-center gap-4 min-w-0 pr-6">
-          {activeChurch && (
-            <>
-              <div className="w-10 h-10 rounded-2xl overflow-hidden bg-gray-100 flex-shrink-0">
-                {activeChurch.image ? (
-                  <img
-                    src={activeChurch.image}
-                    alt=""
-                    className="h-full w-full object-cover"
-                    referrerPolicy="no-referrer"
-                  />
-                ) : (
-                  <div className="h-full w-full flex items-center justify-center text-gray-300">
-                    <Church size={18} />
-                  </div>
-                )}
-              </div>
-              <div className="min-w-0">
-                <p className="text-[10px] font-black uppercase tracking-[0.2em] text-[#937022]">
-                  {t.selectParish}
-                </p>
-                <div className="flex items-center gap-3 min-w-0">
-                  <h1 className="truncate text-sm font-black text-gray-900">
-                    {activeChurch.name}
-                  </h1>
-                  <span className="text-xs font-bold text-gray-300">/</span>
-                  <p className="truncate text-xs font-bold text-gray-400">
-                    {activeChurch.location}
-                  </p>
-                </div>
-              </div>
-            </>
-          )}
+        {/* Desktop Header Left Side (Empty to keep it super clean and minimalist) */}
+        <div className="hidden lg:block flex-1" />
 
-          {userChurches.length > 1 && (
+        <div className="flex items-center gap-4 text-gray-800">
+          {activeEventTitle && onReturnToEvent && (
             <button
-              onClick={() => setShowChurchSwitcher(true)}
-              className="ml-2 flex-shrink-0 rounded-xl bg-gray-50 px-3 py-2 text-[10px] font-black uppercase tracking-widest text-gray-500 transition-colors hover:bg-[#800000]/10 hover:text-[#800000]"
+              onClick={onReturnToEvent}
+              className="hidden items-center gap-2 rounded-xl bg-[#800000]/10 px-3 py-2 text-[10px] font-black uppercase tracking-widest text-[#800000] transition-colors hover:bg-[#800000] hover:text-white sm:flex"
+              title={activeEventTitle}
             >
-              {t.switchChurch}
+              <CalendarDays size={15} />
+              Event
             </button>
           )}
-        </div>
-        
-        <div className="flex items-center gap-4 text-gray-800">
           {userChurches.length > 1 && (
             <button 
               onClick={() => setShowChurchSwitcher(true)}

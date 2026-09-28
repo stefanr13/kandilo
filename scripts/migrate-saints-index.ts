@@ -14,6 +14,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import { getSaintPriorityMetadata, type SaintPriorityMetadata } from './saint-priority';
 
 const PROJECT_ID = 'kandilo-2f7a9';
 const DATABASE = '(default)';
@@ -73,6 +74,7 @@ const langMapToFS = (m: LangMap): FSMap => ({
 });
 
 function dayToIndexFields(day: SaintDay): Record<string, FSValue> {
+  const priority = getSaintPriorityMetadata(day.date, day.saints.map((s) => s.name));
   return {
     date: str(day.date),
     names: {
@@ -80,6 +82,16 @@ function dayToIndexFields(day: SaintDay): Record<string, FSValue> {
         values: day.saints.map((s) => langMapToFS(s.name)),
       },
     },
+    ...priorityToFSFields(priority),
+  };
+}
+
+function priorityToFSFields(priority: SaintPriorityMetadata): Record<string, FSValue> {
+  return {
+    primaryName: langMapToFS(priority.primaryName),
+    priorityRank: str(priority.priorityRank),
+    prioritySource: str(priority.prioritySource),
+    priorityTitle: str(priority.priorityTitle),
   };
 }
 
@@ -144,7 +156,7 @@ function chunk<T>(arr: T[], size: number): T[][] {
 
 async function migrate(): Promise<void> {
   console.log('=== Saints Index Migration ===\n');
-  console.log('Building lean saints_index collection (names only, no descriptions).\n');
+  console.log('Building lean saints_index collection with primary commemoration metadata.\n');
 
   if (!fs.existsSync(DATA_FILE)) {
     throw new Error(`Source file not found: ${DATA_FILE}`);
@@ -180,7 +192,7 @@ async function migrate(): Promise<void> {
   }
 
   console.log(`\nDone! ${total} index documents written to "${INDEX_COLLECTION}".`);
-  console.log('\nCalendar UI should now read from saints_index/{date} (names only).');
+  console.log('\nCalendar UI should now read primaryName/priorityRank from saints_index/{date}.');
   console.log('Day-detail view should read from saints/{date} (full data).');
 }
 

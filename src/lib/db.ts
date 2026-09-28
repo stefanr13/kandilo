@@ -8,3 +8,4 @@ export * from './db/posts';
 export * from './db/checkIns';
 export * from './db/giving';
 export * from './db/managementStats';
+export * from './db/eventPlatform';

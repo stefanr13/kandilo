@@ -1,8 +1,19 @@
+export { registerPushToken, unregisterPushToken } from './modules/pushTokens';
+export { getPublicEventContent, getFeaturedEventPortals } from './modules/eventPublic';
 export {
   onEventCreated,
   onNewsletterCreated,
   onNewsletterPublished,
+  deleteEventMenuItem,
+  getEventDashboardMetrics,
+  getEventFoodOrder,
+  saveEventPortalSetup,
+  scanEventTicket,
+  sendEventAnnouncement,
   sendPushNotification,
+  submitEventFoodOrder,
+  updateEventFoodOrderStatus,
+  upsertEventMenuItem,
 } from './modules/churchNotifications';
 export {
   acceptInvitation,
@@ -10,6 +21,7 @@ export {
   sendInvitation,
   cleanupExpiredInvitations,
 } from './modules/invitations';
+export { listActiveChurches } from './modules/churches';
 export {
   createStripeCheckoutSession,
   createStripePaymentIntent,
@@ -24,7 +36,7 @@ export {
   prepareYearEndAnnualTaxReceipts,
   onGivingCreated,
   onGivingCompleted,
-} from './modules/giving';
+} from './modules/giving/index';
 export { onUserDeleted } from './modules/users';
 export { bootstrapUserProfileOnCreate } from './onUserCreated';
 export {

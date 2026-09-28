@@ -4,6 +4,8 @@ import { Event as CalendarEvent } from '../data/events';
 export const APP_SCREENS = [
   'home',
   'events',
+  'saints',
+  'eventPortal',
   'giving',
   'community',
   'faith',
@@ -39,6 +41,10 @@ export interface StripeConnectReturnState {
   status: StripeConnectReturnStatus;
   churchId: string;
   returnState: string;
+}
+
+export interface PublicEventRouteState {
+  slug: string;
 }
 
 export const DEFAULT_SCREEN: Screen = 'home';
@@ -88,6 +94,20 @@ export function closeSelectedEvent(state: AppNavigationState): AppNavigationStat
 export function parsePendingInvitationPath(pathname: string): string | null {
   const match = pathname.match(/^\/join\/([^/]+)$/);
   return match?.[1] ?? null;
+}
+
+export function normalizePublicEventSlug(value: string | null | undefined): string | null {
+  const normalized = value?.trim().toLowerCase() ?? '';
+  if (!/^[a-z0-9][a-z0-9-]{1,62}[a-z0-9]$/.test(normalized)) {
+    return null;
+  }
+  return normalized;
+}
+
+export function parsePublicEventPath(pathname: string): PublicEventRouteState | null {
+  const match = normalizePathname(pathname).match(/^\/e\/([^/]+)$/);
+  const slug = normalizePublicEventSlug(match?.[1]);
+  return slug ? { slug } : null;
 }
 
 export function getGivingCheckoutState(search: string): 'success' | 'cancel' | null {

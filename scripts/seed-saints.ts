@@ -1,6 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import { getSaintPriorityMetadata, type SaintPriorityMetadata } from './saint-priority';
 
 const PROJECT_ID = 'kandilo-2f7a9';
 const DATABASE = '(default)';
@@ -68,6 +69,7 @@ function saintToFSMap(saint: Saint): FirestoreValue {
 }
 
 function dayToFSFields(day: SaintDay): Record<string, FirestoreValue> {
+  const priority = getSaintPriorityMetadata(day.date, day.saints.map((saint) => saint.name));
   return {
     date: toFSString(day.date),
     saints: {
@@ -75,6 +77,16 @@ function dayToFSFields(day: SaintDay): Record<string, FirestoreValue> {
         values: day.saints.map(saintToFSMap),
       },
     },
+    ...priorityToFSFields(priority),
+  };
+}
+
+function priorityToFSFields(priority: SaintPriorityMetadata): Record<string, FirestoreValue> {
+  return {
+    primaryName: toFSMap(priority.primaryName as unknown as Record<string, string>),
+    priorityRank: toFSString(priority.priorityRank),
+    prioritySource: toFSString(priority.prioritySource),
+    priorityTitle: toFSString(priority.priorityTitle),
   };
 }
 

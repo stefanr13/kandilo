@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { initializeApp as initializeAdminApp, deleteApp as deleteAdminApp, getApps } from 'firebase-admin/app';
 import { getAuth as getAdminAuth } from 'firebase-admin/auth';
 import { FieldValue, Timestamp, getFirestore } from 'firebase-admin/firestore';
@@ -25,6 +25,10 @@ const SUPER_ADMIN_AUTH: TestAuthHeaders = {
 
 function expectedReceiptNumber(year: number, sequence: number): string {
   return `STN-${year}-${String(sequence).padStart(6, '0')}`;
+}
+
+function sha256Hex(value: string): string {
+  return createHash('sha256').update(value).digest('hex');
 }
 
 function annualTaxReceiptDocId(churchId: string, userId: string, year: number): string {
@@ -572,6 +576,73 @@ describe('Cloud Functions emulator', () => {
     );
   });
 
+  it('lists only active church discovery fields for signed-in parish users', async () => {
+    await Promise.all([
+      adminDb.doc('churches/church-2').set({
+        ...churchData(),
+        name: 'St. Sava',
+        city: 'Phoenix',
+        state: 'AZ',
+        location: 'Phoenix, AZ',
+        imageURL: 'https://example.com/st-sava.jpg',
+        contactEmail: 'office@stsava.example',
+        phone: '+1 555 0101',
+        taxReceiptSettings: {
+          taxId: 'private-tax-id',
+        },
+      }),
+      adminDb.doc('churches/inactive-1').set({
+        ...churchData(),
+        name: 'Inactive Parish',
+        isActive: false,
+        contactEmail: 'inactive@example.com',
+      }),
+    ]);
+
+    const result = await callCallable<
+      Record<string, never>,
+      {
+        churches: Array<{
+          id: string;
+          name: string;
+          location: string;
+          imageURL: string;
+          contactEmail: string;
+          phone: string;
+          isActive: boolean;
+          taxReceiptSettings?: unknown;
+        }>;
+      }
+    >(
+      'listActiveChurches',
+      {},
+      { uid: 'other-1', email: 'other@example.com', emailVerified: false }
+    );
+
+    expect(result.churches.map((church) => church.id)).toEqual([CHURCH_ID, 'church-2']);
+    expect(result.churches[1]).toMatchObject({
+      id: 'church-2',
+      name: 'St. Sava',
+      location: 'Phoenix, AZ',
+      imageURL: 'https://example.com/st-sava.jpg',
+      contactEmail: 'office@stsava.example',
+      phone: '+1 555 0101',
+      isActive: true,
+    });
+    expect(result.churches.some((church) => church.id === 'inactive-1')).toBe(false);
+    expect(result.churches[1]).not.toHaveProperty('taxReceiptSettings');
+
+    await expectCallableFails(callCallable('listActiveChurches', {}), 'unauthenticated');
+    await expectCallableFails(
+      callCallable(
+        'listActiveChurches',
+        {},
+        { uid: 'anon-1', email: 'anon@example.com', provider: 'anonymous' }
+      ),
+      'permission-denied'
+    );
+  });
+
   it('rejects malformed callable payloads before side effects', async () => {
     await expectCallableFails(
       callCallable('joinChurch', null, {
@@ -897,6 +968,83 @@ describe('Cloud Functions emulator', () => {
         { uid: 'other-1', email: 'other@example.com' }
       ),
       'permission-denied'
+    );
+  });
+
+  it('validates and persists event donation metadata before hosted Checkout', async () => {
+    await adminDb.doc('eventPortals/festival-donations').set({
+      churchId: CHURCH_ID,
+      organizationId: CHURCH_ID,
+      organizationType: 'church',
+      slug: 'festival-donations',
+      title: 'Festival Donations',
+      status: 'published',
+      campaignsEnabled: true,
+      startsAt: Timestamp.fromDate(new Date('2026-07-01T12:00:00Z')),
+      endsAt: Timestamp.fromDate(new Date('2026-07-02T04:00:00Z')),
+    });
+    await adminDb.doc('eventCampaigns/festival-campaign').set({
+      eventId: 'festival-donations',
+      title: 'Festival Kitchen Fund',
+      active: true,
+    });
+    await adminDb.doc('eventPortals/other-event').set({
+      churchId: CHURCH_ID,
+      organizationId: CHURCH_ID,
+      organizationType: 'church',
+      slug: 'other-event',
+      title: 'Other Event',
+      status: 'published',
+      campaignsEnabled: true,
+    });
+
+    const result = await callCallable<
+      { churchId: string; amountCents: number; purpose: string; eventPortalId: string; eventCampaignId: string },
+      { checkoutUrl: string; givingId: string; sessionId: string }
+    >(
+      'createStripeCheckoutSession',
+      {
+        churchId: CHURCH_ID,
+        amountCents: 4200,
+        purpose: 'Festival Kitchen Fund',
+        eventPortalId: 'festival-donations',
+        eventCampaignId: 'festival-campaign',
+      },
+      { uid: 'member-1', email: 'member@example.com' }
+    );
+
+    expect(result.checkoutUrl).toContain('https://checkout.stripe.com/');
+    const [givingSnap, paymentMetadataSnap] = await Promise.all([
+      adminDb.doc(`giving/${result.givingId}`).get(),
+      adminDb.doc(`givingPaymentMetadata/${result.givingId}`).get(),
+    ]);
+    expect(givingSnap.data()).toMatchObject({
+      churchId: CHURCH_ID,
+      status: 'pending',
+      amountCents: 4200,
+    });
+    expect(givingSnap.data()).not.toHaveProperty('eventPortalId');
+    expect(givingSnap.data()).not.toHaveProperty('eventCampaignId');
+    expect(paymentMetadataSnap.data()).toMatchObject({
+      eventPortalId: 'festival-donations',
+      eventPortalTitle: 'Festival Donations',
+      eventCampaignId: 'festival-campaign',
+      eventCampaignTitle: 'Festival Kitchen Fund',
+    });
+
+    await expectCallableFails(
+      callCallable(
+        'createStripeCheckoutSession',
+        {
+          churchId: CHURCH_ID,
+          amountCents: 4200,
+          purpose: 'Mismatched campaign',
+          eventPortalId: 'other-event',
+          eventCampaignId: 'festival-campaign',
+        },
+        { uid: 'member-1', email: 'member@example.com' }
+      ),
+      'invalid-argument'
     );
   });
 
@@ -14254,5 +14402,805 @@ describe('Cloud Functions emulator', () => {
         'New Bulletin: Parish Bulletin',
       ])
     );
+  });
+
+  it('publishes event portals only when enabled modules have backend content and keeps one featured event per church', async () => {
+    const startsAt = new Date(Date.now() + HOUR_MS);
+    const endsAt = new Date(startsAt.getTime() + 6 * HOUR_MS);
+    const setupChecklist = {
+      basics: true,
+      tickets: true,
+      schedule: false,
+      foodDrink: true,
+      campaigns: true,
+      staff: true,
+      payments: false,
+    };
+
+    await expectCallableFails(
+      callCallable(
+        'saveEventPortalSetup',
+        {
+          churchId: CHURCH_ID,
+          title: 'Missing Content Festival',
+          slug: 'missing-content-festival',
+          description: 'This event is missing ticket, menu, and campaign content.',
+          venueName: 'Parish Hall',
+          venueAddress: '123 Main Street',
+          heroImageURL: '',
+          startsAt: startsAt.toISOString(),
+          endsAt: endsAt.toISOString(),
+          status: 'published',
+          focusEnabled: false,
+          focusStartsAt: null,
+          focusEndsAt: null,
+          ticketsEnabled: true,
+          gateScanningEnabled: true,
+          reEntryEnabled: true,
+          foodDrinkEnabled: true,
+          foodOrderingEnabled: true,
+          campaignsEnabled: true,
+          setupChecklist,
+        },
+        { uid: 'admin-1', email: 'admin@example.com' }
+      ),
+      'failed-precondition'
+    );
+
+    await setDocsInBatches([
+      {
+        path: 'eventTicketTiers/publish-tier-1',
+        data: { eventId: 'publish-ready-one', name: 'Adult', description: '', priceCents: 1000, currency: 'CAD', capacity: null, perOrderLimit: 8, saleStartsAt: null, saleEndsAt: null, active: true },
+      },
+      {
+        path: 'eventMenuItems/publish-menu-1',
+        data: { eventId: 'publish-ready-one', churchId: CHURCH_ID, category: 'Food', name: 'Plate', description: '', priceCents: 1200, currency: 'CAD', available: true, soldOut: false, maxPerOrder: 4, inventoryMode: 'tracked', quantityAvailable: 25, quantitySold: 0, sortOrder: 0 },
+      },
+      {
+        path: 'eventCampaigns/publish-campaign-1',
+        data: { eventId: 'publish-ready-one', title: 'Kitchen Fund', description: '', suggestedAmountCents: 2500, active: true },
+      },
+      {
+        path: 'eventTicketTiers/publish-tier-2',
+        data: { eventId: 'publish-ready-two', name: 'Adult', description: '', priceCents: 1000, currency: 'CAD', capacity: null, perOrderLimit: 8, saleStartsAt: null, saleEndsAt: null, active: true },
+      },
+      {
+        path: 'eventMenuItems/publish-menu-2',
+        data: { eventId: 'publish-ready-two', churchId: CHURCH_ID, category: 'Food', name: 'Plate', description: '', priceCents: 1200, currency: 'CAD', available: true, soldOut: false, maxPerOrder: 4, inventoryMode: 'tracked', quantityAvailable: 25, quantitySold: 0, sortOrder: 0 },
+      },
+      {
+        path: 'eventCampaigns/publish-campaign-2',
+        data: { eventId: 'publish-ready-two', title: 'Kitchen Fund', description: '', suggestedAmountCents: 2500, active: true },
+      },
+    ]);
+
+    const publishInput = {
+      churchId: CHURCH_ID,
+      description: 'Food, music, tickets, and parish fundraising.',
+      venueName: 'Parish Hall',
+      venueAddress: '123 Main Street',
+      heroImageURL: '',
+      startsAt: startsAt.toISOString(),
+      endsAt: endsAt.toISOString(),
+      status: 'published',
+      focusEnabled: true,
+      focusStartsAt: null,
+      focusEndsAt: null,
+      ticketsEnabled: true,
+      gateScanningEnabled: true,
+      reEntryEnabled: true,
+      foodDrinkEnabled: true,
+      foodOrderingEnabled: true,
+      campaignsEnabled: true,
+      setupChecklist,
+    };
+
+    await expect(callCallable(
+      'saveEventPortalSetup',
+      { ...publishInput, title: 'Publish Ready One', slug: 'publish-ready-one' },
+      { uid: 'admin-1', email: 'admin@example.com' }
+    )).resolves.toMatchObject({ success: true, eventId: 'publish-ready-one', status: 'published' });
+
+    await expect(callCallable(
+      'saveEventPortalSetup',
+      { ...publishInput, title: 'Publish Ready Two', slug: 'publish-ready-two' },
+      { uid: 'priest-1', email: 'priest@example.com' }
+    )).resolves.toMatchObject({ success: true, eventId: 'publish-ready-two', status: 'published' });
+
+    const [firstEventSnap, secondEventSnap, focusLockSnap] = await Promise.all([
+      adminDb.doc('eventPortals/publish-ready-one').get(),
+      adminDb.doc('eventPortals/publish-ready-two').get(),
+      adminDb.doc(`eventFeaturedByChurch/${CHURCH_ID}`).get(),
+    ]);
+    expect(firstEventSnap.data()).toMatchObject({ status: 'published', gateScanningEnabled: true, focusEnabled: false });
+    expect(secondEventSnap.data()).toMatchObject({ status: 'published', gateScanningEnabled: true, focusEnabled: true });
+    expect(firstEventSnap.data()).not.toHaveProperty('createdBy');
+    expect(secondEventSnap.data()).not.toHaveProperty('updatedBy');
+    expect(focusLockSnap.data()).toMatchObject({ eventId: 'publish-ready-two' });
+  });
+
+  it('rejects draft event announcements and persists in-app delivery for published events', async () => {
+    const eventBase = {
+      churchId: CHURCH_ID,
+      organizationId: CHURCH_ID,
+      organizationType: 'church',
+      title: 'Announcement Event',
+      startsAt: Timestamp.fromDate(new Date('2026-07-01T12:00:00Z')),
+      endsAt: Timestamp.fromDate(new Date('2026-07-02T04:00:00Z')),
+      venueName: 'Parish Hall',
+      venueAddress: '123 Main Street',
+      heroImageURL: '',
+      description: 'A public event with announcements.',
+      modules: ['schedule', 'info'],
+      focusEnabled: false,
+      focusStartsAt: null,
+      focusEndsAt: null,
+      ticketsEnabled: false,
+      gateScanningEnabled: false,
+      reEntryEnabled: true,
+      foodDrinkEnabled: false,
+      foodOrderingEnabled: false,
+      campaignsEnabled: false,
+      setupChecklist: {
+        basics: true,
+        tickets: false,
+        schedule: false,
+        foodDrink: false,
+        campaigns: false,
+        staff: false,
+        payments: false,
+      },
+    };
+    await adminDb.doc('eventPortals/announcement-draft').set({
+      ...eventBase,
+      slug: 'announcement-draft',
+      status: 'draft',
+    });
+    await adminDb.doc('eventPortals/announcement-published').set({
+      ...eventBase,
+      slug: 'announcement-published',
+      status: 'published',
+    });
+
+    await expectCallableFails(
+      callCallable(
+        'sendEventAnnouncement',
+        { eventId: 'announcement-draft', title: 'Draft alert', body: 'Do not send yet.', priority: 'info', channels: ['inApp'] },
+        { uid: 'admin-1', email: 'admin@example.com' }
+      ),
+      'failed-precondition'
+    );
+
+    const result = await callCallable<
+      { eventId: string; title: string; body: string; priority: string; channels: string[] },
+      { success: boolean; announcementId: string; pushSent: boolean; emailSent: boolean; emailRecipientCount: number }
+    >(
+      'sendEventAnnouncement',
+      { eventId: 'announcement-published', title: 'Gate opens', body: 'The festival gate is now open.', priority: 'info', channels: ['inApp'] },
+      { uid: 'priest-1', email: 'priest@example.com' }
+    );
+
+    expect(result).toMatchObject({ success: true, pushSent: false, emailSent: false, emailRecipientCount: 0 });
+    expect((await adminDb.doc(`eventAnnouncements/${result.announcementId}`).get()).data()).toMatchObject({
+      eventId: 'announcement-published',
+      churchId: CHURCH_ID,
+      status: 'sent',
+      channels: ['inApp'],
+    });
+    expect((await adminDb.doc(`eventAnnouncementDelivery/${result.announcementId}`).get()).data()).toMatchObject({
+      eventId: 'announcement-published',
+      requestedChannels: ['inApp'],
+      deliveredChannels: ['inApp'],
+      failedChannels: [],
+    });
+  });
+
+  it('returns event dashboard metrics only to admins and priests for the event church', async () => {
+    await adminDb.doc('eventPortals/festival-2026').set({
+      churchId: CHURCH_ID,
+      organizationId: CHURCH_ID,
+      organizationType: 'church',
+      slug: 'festival-2026',
+      title: 'Festival 2026',
+      status: 'published',
+      currency: 'CAD',
+      startsAt: Timestamp.fromDate(new Date('2026-07-01T12:00:00Z')),
+      endsAt: Timestamp.fromDate(new Date('2026-07-02T04:00:00Z')),
+    });
+    await adminDb.doc('eventCampaigns/campaign-1').set({
+      eventId: 'festival-2026',
+      title: 'Building Fund',
+      active: true,
+    });
+    await setDocsInBatches([
+      {
+        path: 'eventTickets/ticket-1',
+        data: {
+          eventId: 'festival-2026',
+          status: 'paid',
+          tierId: 'adult',
+          tierName: 'Adult entry',
+          priceCents: 1500,
+          currency: 'CAD',
+        },
+      },
+      {
+        path: 'eventTickets/ticket-refunded',
+        data: {
+          eventId: 'festival-2026',
+          status: 'refunded',
+          tierName: 'Refunded entry',
+          priceCents: 5000,
+          currency: 'CAD',
+        },
+      },
+      {
+        path: 'eventTicketScans/scan-1',
+        data: { eventId: 'festival-2026', ticketId: 'ticket-1', result: 'accepted' },
+      },
+      {
+        path: 'eventTicketScans/scan-2',
+        data: { eventId: 'festival-2026', ticketId: 'ticket-1', result: 'reentry_accepted' },
+      },
+      {
+        path: 'eventTicketScans/scan-invalid',
+        data: { eventId: 'festival-2026', ticketId: 'ticket-invalid', result: 'invalid' },
+      },
+      {
+        path: 'eventOrders/order-paid',
+        data: {
+          eventId: 'festival-2026',
+          churchId: CHURCH_ID,
+          status: 'picked_up',
+          paymentStatus: 'paid_at_pickup',
+          totalCents: 3300,
+          currency: 'CAD',
+          items: [
+            { menuItemId: 'cevapi', name: 'Cevapi plate', quantity: 2, lineTotalCents: 2400 },
+            { menuItemId: 'drink', name: 'Drink', quantity: 3, lineTotalCents: 900 },
+          ],
+        },
+      },
+      {
+        path: 'eventOrders/order-pending',
+        data: {
+          eventId: 'festival-2026',
+          churchId: CHURCH_ID,
+          status: 'ready',
+          paymentStatus: 'pay_at_pickup',
+          totalCents: 1200,
+          currency: 'CAD',
+          items: [{ menuItemId: 'pastry', name: 'Pastry', quantity: 1, lineTotalCents: 1200 }],
+        },
+      },
+      {
+        path: 'eventOrders/order-cancelled',
+        data: {
+          eventId: 'festival-2026',
+          churchId: CHURCH_ID,
+          status: 'cancelled',
+          paymentStatus: 'pay_at_pickup',
+          totalCents: 9999,
+          currency: 'CAD',
+          items: [{ menuItemId: 'cancelled', name: 'Cancelled', quantity: 1, lineTotalCents: 9999 }],
+        },
+      },
+      {
+        path: 'giving/gift-event',
+        data: {
+          churchId: CHURCH_ID,
+          eventId: 'festival-2026',
+          status: 'completed',
+          amountCents: 5000,
+          currency: 'CAD',
+        },
+      },
+      {
+        path: 'giving/gift-campaign',
+        data: {
+          churchId: CHURCH_ID,
+          eventCampaignId: 'campaign-1',
+          status: 'completed',
+          amount: 12.34,
+          currency: 'CAD',
+        },
+      },
+      {
+        path: 'giving/gift-failed',
+        data: {
+          churchId: CHURCH_ID,
+          eventId: 'festival-2026',
+          status: 'failed',
+          amountCents: 9999,
+          currency: 'CAD',
+        },
+      },
+      {
+        path: 'giving/gift-private-event-metadata',
+        data: {
+          churchId: CHURCH_ID,
+          status: 'completed',
+          amountCents: 2100,
+          currency: 'CAD',
+        },
+      },
+      {
+        path: 'givingPaymentMetadata/gift-private-event-metadata',
+        data: {
+          churchId: CHURCH_ID,
+          eventPortalId: 'festival-2026',
+          eventCampaignId: 'campaign-1',
+          amountCents: 2100,
+          currency: 'CAD',
+        },
+      },
+    ]);
+
+    await expectCallableFails(
+      callCallable('getEventDashboardMetrics', { eventId: 'festival-2026' }, {
+        uid: 'member-1',
+        email: 'member@example.com',
+      }),
+      'permission-denied'
+    );
+
+    const metrics = await callCallable<{ eventId: string }, {
+      eventId: string;
+      currency: string;
+      entrySalesCents: number;
+      foodSalesCents: number;
+      pendingFoodSalesCents: number;
+      totalSalesCents: number;
+      donationCents: number;
+      ticketsSold: number;
+      qrCheckIns: number;
+      scanAttempts: number;
+      foodOrders: number;
+      pendingFoodOrders: number;
+      foodItemsSold: number;
+      donationCount: number;
+      salesBreakdown: Array<{ type: string; label: string; quantity: number; revenueCents: number }>;
+      orderStatusCounts: Array<{ status: string; count: number }>;
+      truncated: boolean;
+      multiCurrency: boolean;
+    }>('getEventDashboardMetrics', { eventId: 'festival-2026' }, {
+      uid: 'priest-1',
+      email: 'priest@example.com',
+    });
+
+    expect(metrics).toMatchObject({
+      eventId: 'festival-2026',
+      currency: 'CAD',
+      entrySalesCents: 1500,
+      foodSalesCents: 3300,
+      pendingFoodSalesCents: 1200,
+      totalSalesCents: 4800,
+      ticketsSold: 1,
+      qrCheckIns: 1,
+      scanAttempts: 3,
+      foodOrders: 1,
+      pendingFoodOrders: 1,
+      foodItemsSold: 5,
+      donationCount: 3,
+      donationCents: 8334,
+      truncated: false,
+      multiCurrency: false,
+    });
+    expect(metrics.salesBreakdown).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ type: 'food', label: 'Cevapi plate', quantity: 2, revenueCents: 2400 }),
+        expect.objectContaining({ type: 'ticket', label: 'Adult entry', quantity: 1, revenueCents: 1500 }),
+        expect.objectContaining({ type: 'food', label: 'Drink', quantity: 3, revenueCents: 900 }),
+      ])
+    );
+    expect(metrics.salesBreakdown).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ label: 'Pastry' }),
+        expect.objectContaining({ label: 'Cancelled' }),
+      ])
+    );
+    expect(metrics.orderStatusCounts).toEqual(
+      expect.arrayContaining([
+        { status: 'picked_up', count: 1 },
+        { status: 'ready', count: 1 },
+        { status: 'cancelled', count: 1 },
+      ])
+    );
+  });
+
+  it('scans event tickets transactionally without storing raw QR codes', async () => {
+    await adminDb.doc('eventPortals/festival-scan').set({
+      churchId: CHURCH_ID,
+      organizationId: CHURCH_ID,
+      organizationType: 'church',
+      slug: 'festival-scan',
+      title: 'Festival Scan',
+      status: 'published',
+      gateScanningEnabled: true,
+      reEntryEnabled: true,
+      startsAt: Timestamp.fromMillis(Date.now() - HOUR_MS),
+      endsAt: Timestamp.fromMillis(Date.now() + HOUR_MS),
+    });
+    await adminDb.doc('eventTickets/ticket-scan-1').set({
+      eventId: 'festival-scan',
+      status: 'paid',
+      scanCount: 0,
+      reEntryEnabled: true,
+      tierName: 'Adult entry',
+      priceCents: 1500,
+      currency: 'CAD',
+    });
+    await adminDb.doc('eventTicketPrivate/ticket-scan-1').set({
+      eventId: 'festival-scan',
+      ticketId: 'ticket-scan-1',
+      qrTokenHash: sha256Hex('QR-SECRET-123'),
+      buyerEmail: 'buyer@example.com',
+    });
+    await adminDb.doc('eventPortals/other-scan').set({
+      churchId: CHURCH_ID,
+      organizationId: CHURCH_ID,
+      organizationType: 'church',
+      slug: 'other-scan',
+      title: 'Other Scan',
+      status: 'published',
+      gateScanningEnabled: true,
+      reEntryEnabled: true,
+      startsAt: Timestamp.fromMillis(Date.now() - HOUR_MS),
+      endsAt: Timestamp.fromMillis(Date.now() + HOUR_MS),
+    });
+    await adminDb.doc('eventTickets/ticket-other-scan').set({
+      eventId: 'other-scan',
+      status: 'paid',
+      scanCount: 0,
+      reEntryEnabled: true,
+    });
+    await adminDb.doc('eventTicketPrivate/ticket-other-scan').set({
+      eventId: 'other-scan',
+      ticketId: 'ticket-other-scan',
+      qrTokenHash: sha256Hex('OTHER-QR-123'),
+      buyerEmail: 'other-buyer@example.com',
+    });
+
+    await expectCallableFails(
+      callCallable(
+        'scanEventTicket',
+        { eventId: 'festival-scan', code: 'QR-SECRET-123' },
+        { uid: 'member-1', email: 'member@example.com' }
+      ),
+      'permission-denied'
+    );
+
+    const wrongEventScan = await callCallable<
+      { eventId: string; code: string; deviceId: string },
+      { admitted: boolean; result: string; ticketId: string; scanCount: number }
+    >(
+      'scanEventTicket',
+      { eventId: 'festival-scan', code: 'OTHER-QR-123', deviceId: 'gate-ipad-1' },
+      { uid: 'admin-1', email: 'admin@example.com' }
+    );
+    expect(wrongEventScan).toMatchObject({
+      admitted: false,
+      result: 'wrong_event',
+      ticketId: '',
+      scanCount: 0,
+    });
+
+    const firstScan = await callCallable<
+      { eventId: string; code: string; deviceId: string },
+      { admitted: boolean; result: string; ticketId: string; scanCount: number }
+    >(
+      'scanEventTicket',
+      { eventId: 'festival-scan', code: 'QR-SECRET-123', deviceId: 'gate-ipad-1' },
+      { uid: 'admin-1', email: 'admin@example.com' }
+    );
+    expect(firstScan).toMatchObject({
+      admitted: true,
+      result: 'accepted',
+      ticketId: 'ticket-scan-1',
+      scanCount: 1,
+    });
+
+    const reentryPrompt = await callCallable<
+      { eventId: string; code: string; deviceId: string },
+      { admitted: boolean; result: string; requiresStaffConfirmation: boolean; scanCount: number }
+    >(
+      'scanEventTicket',
+      { eventId: 'festival-scan', code: 'QR-SECRET-123', deviceId: 'gate-ipad-1' },
+      { uid: 'admin-1', email: 'admin@example.com' }
+    );
+    expect(reentryPrompt).toMatchObject({
+      admitted: false,
+      result: 'requires_reentry_confirmation',
+      requiresStaffConfirmation: true,
+      scanCount: 1,
+    });
+
+    const confirmedReentry = await callCallable<
+      { eventId: string; code: string; deviceId: string; confirmReEntry: boolean },
+      { admitted: boolean; result: string; scanCount: number }
+    >(
+      'scanEventTicket',
+      { eventId: 'festival-scan', code: 'QR-SECRET-123', deviceId: 'gate-ipad-1', confirmReEntry: true },
+      { uid: 'admin-1', email: 'admin@example.com' }
+    );
+    expect(confirmedReentry).toMatchObject({
+      admitted: true,
+      result: 'reentry_accepted',
+      scanCount: 2,
+    });
+
+    const [ticketSnap, scansSnap] = await Promise.all([
+      adminDb.doc('eventTickets/ticket-scan-1').get(),
+      adminDb.collection('eventTicketScans').where('eventId', '==', 'festival-scan').get(),
+    ]);
+    expect(ticketSnap.data()).toMatchObject({
+      status: 'checked_in',
+      scanCount: 2,
+      lastScanResult: 'reentry_accepted',
+    });
+    expect(scansSnap.size).toBe(4);
+    scansSnap.docs.forEach((scanDoc) => {
+      expect(JSON.stringify(scanDoc.data())).not.toContain('QR-SECRET-123');
+      expect(scanDoc.data()).toHaveProperty('scanHashPrefix');
+    });
+  });
+
+  it('reserves and restocks tracked food inventory through server-side order transactions', async () => {
+    await adminDb.doc('eventPortals/food-inventory').set({
+      churchId: CHURCH_ID,
+      organizationId: CHURCH_ID,
+      organizationType: 'church',
+      slug: 'food-inventory',
+      title: 'Food Inventory',
+      status: 'published',
+      foodDrinkEnabled: true,
+      foodOrderingEnabled: true,
+      startsAt: Timestamp.fromDate(new Date(Date.now() - HOUR_MS)),
+      endsAt: Timestamp.fromDate(new Date(Date.now() + HOUR_MS)),
+    });
+    const menuResult = await callCallable<
+      {
+        eventId: string;
+        category: string;
+        name: string;
+        description: string;
+        priceCents: number;
+        currency: string;
+        available: boolean;
+        soldOut: boolean;
+        maxPerOrder: number;
+        inventoryMode: 'tracked';
+        quantityAvailable: number;
+        sortOrder: number;
+      },
+      { menuItemId: string }
+    >(
+      'upsertEventMenuItem',
+      {
+        eventId: 'food-inventory',
+        category: 'Food',
+        name: 'Cevapi plate',
+        description: 'Grilled plate',
+        priceCents: 1200,
+        currency: 'CAD',
+        available: true,
+        soldOut: false,
+        maxPerOrder: 5,
+        inventoryMode: 'tracked',
+        quantityAvailable: 2,
+        sortOrder: 0,
+      },
+      { uid: 'priest-1', email: 'priest@example.com' }
+    );
+
+    const order = await callCallable<
+      {
+        requestId: string;
+        eventId: string;
+        customerName: string;
+        customerEmail: string;
+        customerPhone: string;
+        specialInstructions: string;
+        items: Array<{ menuItemId: string; quantity: number }>;
+      },
+      { orderId: string; totalCents: number }
+    >(
+      'submitEventFoodOrder',
+      {
+        requestId: randomUUID(),
+        eventId: 'food-inventory',
+        customerName: 'Guest',
+        customerEmail: 'guest@example.com',
+        customerPhone: '',
+        specialInstructions: '',
+        items: [{ menuItemId: menuResult.menuItemId, quantity: 2 }],
+      },
+      { uid: 'member-1', email: 'member@example.com' }
+    );
+    expect(order.totalCents).toBe(2400);
+    expect((await adminDb.doc(`eventMenuItems/${menuResult.menuItemId}`).get()).data()).toMatchObject({
+      inventoryMode: 'tracked',
+      quantityAvailable: 0,
+      quantitySold: 2,
+      soldOut: true,
+    });
+    await expectCallableFails(
+      callCallable(
+        'deleteEventMenuItem',
+        { eventId: 'food-inventory', menuItemId: menuResult.menuItemId },
+        { uid: 'admin-1', email: 'admin@example.com' }
+      ),
+      'failed-precondition'
+    );
+
+    await expectCallableFails(
+      callCallable(
+        'submitEventFoodOrder',
+        {
+          requestId: randomUUID(),
+          eventId: 'food-inventory',
+          customerName: 'Guest Two',
+          customerEmail: 'guest2@example.com',
+          customerPhone: '',
+          specialInstructions: '',
+          items: [{ menuItemId: menuResult.menuItemId, quantity: 1 }],
+        },
+        { uid: 'member-1', email: 'member@example.com' }
+      ),
+      'failed-precondition'
+    );
+
+    await expect(
+      callCallable(
+        'updateEventFoodOrderStatus',
+        { eventId: 'food-inventory', orderId: order.orderId, status: 'cancelled' },
+        { uid: 'admin-1', email: 'admin@example.com' }
+      )
+    ).resolves.toEqual({ success: true });
+    expect((await adminDb.doc(`eventMenuItems/${menuResult.menuItemId}`).get()).data()).toMatchObject({
+      quantityAvailable: 2,
+      quantitySold: 0,
+      soldOut: false,
+    });
+    await expect(
+      callCallable(
+        'updateEventFoodOrderStatus',
+        { eventId: 'food-inventory', orderId: order.orderId, status: 'cancelled' },
+        { uid: 'admin-1', email: 'admin@example.com' }
+      )
+    ).resolves.toEqual({ success: true });
+    expect((await adminDb.doc(`eventMenuItems/${menuResult.menuItemId}`).get()).data()).toMatchObject({
+      quantityAvailable: 2,
+      quantitySold: 0,
+      soldOut: false,
+    });
+    await expect(callCallable(
+      'deleteEventMenuItem',
+      { eventId: 'food-inventory', menuItemId: menuResult.menuItemId },
+      { uid: 'admin-1', email: 'admin@example.com' }
+    )).resolves.toEqual({ success: true });
+  });
+});
+
+describe('Production regression paths', () => {
+  const staff = { uid: 'admin-1', email: 'admin@example.com' };
+  const portalData = () => ({
+    churchId: CHURCH_ID, organizationId: CHURCH_ID, organizationType: 'church',
+    slug: 'production-event', title: 'Parish picnic', status: 'published',
+    startsAt: Timestamp.fromMillis(Date.now() - HOUR_MS), endsAt: Timestamp.fromMillis(Date.now() + HOUR_MS),
+    focusEnabled: true, foodDrinkEnabled: true, foodOrderingEnabled: true, gateScanningEnabled: true, reEntryEnabled: false,
+  });
+
+  it('deletes account data and avatars while retaining financial records', async () => {
+    const uid = 'other-1';
+    await adminDb.doc(`churches/${CHURCH_ID}/members/${uid}`).set({ userId: uid, status: 'suspended' });
+    await adminDb.doc(`users/${uid}/churchMemberships/${CHURCH_ID}`).set({ status: 'suspended' });
+    await adminDb.doc(`churches/orphan/members/${uid}`).set({ userId: uid, status: 'active' });
+    await adminDb.doc('invitations/deleted-user-invite').set({ inviteeEmail: 'other@example.com', status: 'accepted' });
+    await adminDb.doc('pushTokenOwners/deleted-user-device').set({ userId: uid });
+    await adminDb.doc('eventOrders/deleted-user-order').set({ customerName: 'Person', customerEmail: 'other@example.com', customerPhone: '123', specialInstructions: 'Private', totalCents: 2000 });
+    await adminDb.doc('eventOrderPrivate/deleted-user-order').set({ requestUserId: uid, requestDigest: 'private' });
+    await adminDb.doc('giving/retained-record').set({ userId: uid, status: 'completed', amountCents: 1000 });
+    await Promise.all(STORAGE_BUCKETS.map((bucket) => adminStorage.bucket(bucket).file(`users/${uid}/avatar.jpg`).save(Buffer.from('avatar'), { resumable: false })));
+    await adminAuth.deleteUser(uid);
+    await waitFor(async () => (await adminDb.doc(`users/${uid}`).get()).exists, (exists) => !exists, 'account cleanup');
+    for (const path of [`users/${uid}/churchMemberships/${CHURCH_ID}`, `churches/${CHURCH_ID}/members/${uid}`, `churches/orphan/members/${uid}`, 'invitations/deleted-user-invite', 'pushTokenOwners/deleted-user-device', 'eventOrderPrivate/deleted-user-order']) {
+      expect((await adminDb.doc(path).get()).exists).toBe(false);
+    }
+    expect((await adminDb.doc('eventOrders/deleted-user-order').get()).data()).toMatchObject({ customerName: 'Deleted account', customerEmail: '', customerPhone: '', specialInstructions: '', totalCents: 2000 });
+    expect((await adminDb.doc('giving/retained-record').get()).exists).toBe(true);
+    // The CLI uses the configured bucket when logged in and the appspot fallback
+    // in credential-free CI. Cleanup must delete the avatar in its active bucket.
+    await waitFor(
+      async () => Promise.all(STORAGE_BUCKETS.map(async (bucket) => (
+        await adminStorage.bucket(bucket).file(`users/${uid}/avatar.jpg`).exists()
+      )[0])),
+      (existence) => existence.filter((exists) => !exists).length === 1,
+      'avatar cleanup in the Functions emulator default bucket'
+    );
+  });
+
+  it('requires genuine verified email and serializes concurrent self-joins at the cap', async () => {
+    await adminAuth.updateUser('other-1', { emailVerified: false });
+    await expectCallableFails(callCallable('joinChurch', { churchId: CHURCH_ID }, { uid: 'other-1', email: 'other@example.com' }), 'failed-precondition');
+    await adminAuth.updateUser('other-1', { emailVerified: true });
+    for (let i = 1; i <= 4; i++) await adminDb.doc(`churches/concurrent-${i}`).set(churchData());
+    const outcomes = await Promise.allSettled([1, 2, 3, 4].map((i) => callCallable('joinChurch', { churchId: `concurrent-${i}` }, { uid: 'other-1', email: 'other@example.com' })));
+    expect(outcomes.filter((outcome) => outcome.status === 'fulfilled')).toHaveLength(3);
+    expect((await adminDb.collection('users/other-1/churchMemberships').where('status', '==', 'active').get()).size).toBe(3);
+  });
+
+  it('serves usable public event content without leaking legacy private fields and honors parish deactivation', async () => {
+    await adminDb.doc('eventPortals/production-event').set({ ...portalData(), createdBy: 'private-uid' });
+    await adminDb.doc('eventMenuItems/public-meal').set({ eventId: 'production-event', name: 'Meal', available: true, priceCents: 1000, prepNotes: 'Private note' });
+    await adminDb.doc('eventMenuItems/hidden-meal').set({ eventId: 'production-event', name: 'Hidden', available: false });
+    await adminDb.doc('eventAnnouncements/public-news').set({ eventId: 'production-event', title: 'Welcome', status: 'sent', sentAt: Timestamp.now(), recipientEmails: ['private@example.com'] });
+    const result = await callCallable<unknown, { portal: Record<string, unknown>; menuItems: Record<string, unknown>[]; announcements: Record<string, unknown>[] }>('getPublicEventContent', { eventId: 'production-event' });
+    expect(result.portal.title).toBe('Parish picnic');
+    expect(result.portal).not.toHaveProperty('createdBy');
+    expect(result.menuItems).toEqual([expect.objectContaining({ id: 'public-meal', name: 'Meal' })]);
+    expect(result.menuItems[0]).not.toHaveProperty('prepNotes');
+    expect(result.announcements[0]).not.toHaveProperty('recipientEmails');
+    const featured = await callCallable<unknown, { portals: unknown[] }>('getFeaturedEventPortals', { churchIds: [CHURCH_ID] });
+    expect(featured.portals).toHaveLength(1);
+    await adminDb.doc(`churches/${CHURCH_ID}`).update({ isActive: false });
+    expect(await callCallable('getPublicEventContent', { eventId: 'production-event' })).toEqual({ portal: null });
+    expect(await callCallable('getFeaturedEventPortals', { churchIds: [CHURCH_ID] })).toEqual({ portals: [] });
+  });
+
+  it('deduplicates concurrent food retries, recovers the receipt, and refuses new orders for inactive parishes', async () => {
+    await adminDb.doc('eventPortals/production-event').set(portalData());
+    await adminDb.doc('eventMenuItems/production-meal').set({ eventId: 'production-event', name: 'Meal', available: true, soldOut: false, priceCents: 1000, currency: 'CAD', maxPerOrder: 5, inventoryMode: 'tracked', quantityAvailable: 10, quantitySold: 0 });
+    const input = { requestId: randomUUID(), eventId: 'production-event', customerName: 'Visitor', customerEmail: 'visitor@example.com', customerPhone: '', specialInstructions: '', items: [{ menuItemId: 'production-meal', quantity: 2 }] };
+    const orders = await Promise.all([callCallable<typeof input, { orderId: string }>('submitEventFoodOrder', input), callCallable<typeof input, { orderId: string }>('submitEventFoodOrder', input)]);
+    expect(orders[0].orderId).toBe(orders[1].orderId);
+    expect((await adminDb.doc('eventMenuItems/production-meal').get()).data()?.quantityAvailable).toBe(8);
+    await expectCallableFails(callCallable('submitEventFoodOrder', { ...input, customerName: 'Changed' }), 'already-exists');
+    const receipt = await callCallable<unknown, { order: Record<string, unknown> }>('getEventFoodOrder', { eventId: input.eventId, requestId: input.requestId });
+    expect(receipt.order).toMatchObject({ totalCents: 2000, status: 'submitted' });
+    expect(receipt.order).not.toHaveProperty('customerEmail');
+    await adminDb.doc(`eventOrders/${orders[0].orderId}`).update({ status: 'picked_up', paymentStatus: 'paid_at_pickup' });
+    expect(await callCallable('submitEventFoodOrder', input)).toMatchObject({ status: 'picked_up', paymentStatus: 'paid_at_pickup' });
+    expect(await callCallable('getEventFoodOrder', { eventId: input.eventId, requestId: randomUUID() })).toEqual({ order: null });
+    await adminDb.doc(`churches/${CHURCH_ID}`).update({ isActive: false });
+    await expectCallableFails(callCallable('submitEventFoodOrder', { ...input, requestId: randomUUID() }), 'failed-precondition');
+    expect((await adminDb.doc('eventMenuItems/production-meal').get()).data()?.quantityAvailable).toBe(8);
+  });
+
+  it('rejects unpaid tickets and prevents ticket flags from overriding disabled event reentry', async () => {
+    await adminDb.doc('eventPortals/production-event').set(portalData());
+    await adminDb.doc('eventTickets/production-ticket').set({ eventId: 'production-event', status: 'payment_pending', scanCount: 0, reEntryEnabled: true });
+    await adminDb.doc('eventTicketPrivate/production-ticket').set({ eventId: 'production-event', ticketId: 'production-ticket', qrTokenHash: sha256Hex('PRIVATE-TICKET-CODE') });
+    const scan = () => callCallable<unknown, { admitted: boolean; result: string }>('scanEventTicket', { eventId: 'production-event', code: 'PRIVATE-TICKET-CODE', confirmReEntry: true }, staff);
+    expect(await scan()).toMatchObject({ admitted: false, result: 'invalid' });
+    await adminDb.doc('eventTickets/production-ticket').update({ status: 'checked_in', scanCount: 1 });
+    expect(await scan()).toMatchObject({ admitted: false, result: 'requires_reentry_confirmation' });
+    await adminDb.doc('eventTickets/production-ticket').update({ status: 'paid', scanCount: 0, expiresAt: Timestamp.fromMillis(Date.now() - MINUTE_MS) });
+    expect(await scan()).toMatchObject({ admitted: false, result: 'expired' });
+  });
+
+  it('records a permanent donation-email failure once without re-triggering delivery', async () => {
+    const giving = adminDb.doc('giving/production-missing-recipient');
+    await giving.set({ status: 'pending', userId: 'deleted-account', churchId: CHURCH_ID, amountCents: 1000, currency: 'USD', taxReceiptStatus: 'not_configured' });
+    await giving.update({ status: 'completed' });
+    await waitFor(async () => (await giving.get()).data(), (data) => data?.receiptEmailError === 'receipt_missing_email', 'permanent email failure');
+    await giving.update({ updatedAt: FieldValue.serverTimestamp() });
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+    expect((await giving.get()).data()).toMatchObject({ receiptEmailAttempts: 1, receiptEmailError: 'receipt_missing_email' });
+  });
+
+  it('transfers push ownership between accounts and keeps the new owner when the old account unregisters', async () => {
+    const token = 'production-device-fcm-registration-token';
+    const member = { uid: 'member-1', email: 'member@example.com' };
+    const other = { uid: 'other-1', email: 'other@example.com' };
+    await callCallable('registerPushToken', { token }, member);
+    await callCallable('registerPushToken', { token }, other);
+    expect((await adminDb.doc('users/member-1').get()).data()?.fcmTokens).not.toContain(token);
+    expect((await adminDb.doc('users/other-1').get()).data()?.fcmTokens).toContain(token);
+    await callCallable('unregisterPushToken', { token }, member);
+    const owner = adminDb.doc(`pushTokenOwners/${sha256Hex(token)}`);
+    expect((await owner.get()).data()?.userId).toBe('other-1');
+    await callCallable('unregisterPushToken', { token }, other);
+    expect((await owner.get()).exists).toBe(false);
   });
 });

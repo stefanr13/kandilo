@@ -243,7 +243,7 @@ export function buildAppleAppSiteAssociation(appleTeamId, packageId = expectedNa
       details: [
         {
           appID: `${normalizeAppleTeamId(appleTeamId)}.${packageId}`,
-          paths: ['/', '/join/*'],
+          paths: ['/', '/join/*', '/e/*'],
         },
       ],
     },
@@ -298,7 +298,8 @@ function checkedInAppleUniversalLinksStatus(rootDir) {
       const paths = Array.isArray(detail?.paths) ? detail.paths : [];
       return /^[A-Z0-9]{10}\.com\.kandilo\.app$/.test(appId)
         && paths.includes('/')
-        && paths.includes('/join/*');
+        && paths.includes('/join/*')
+        && paths.includes('/e/*');
     });
 
     return hasFinalAppId

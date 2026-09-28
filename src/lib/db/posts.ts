@@ -111,7 +111,8 @@ export async function deletePost(churchId: string, postId: string): Promise<void
 
 export function subscribeToPosts(
   churchId: string,
-  callback: (posts: ChurchPost[]) => void
+  callback: (posts: ChurchPost[]) => void,
+  onError?: (error: Error) => void
 ): () => void {
   const q = query(
     collection(db, 'churches', churchId, 'posts'),
@@ -120,12 +121,13 @@ export function subscribeToPosts(
   return onSnapshot(q, (snap) => {
     const posts: ChurchPost[] = snap.docs.map((d) => mapFirestorePost(d, churchId));
     callback(posts);
-  });
+  }, onError);
 }
 
 export function subscribeToPublishedPosts(
   churchId: string,
-  callback: (posts: ChurchPost[]) => void
+  callback: (posts: ChurchPost[]) => void,
+  onError?: (error: Error) => void
 ): () => void {
   const q = query(
     collection(db, 'churches', churchId, 'posts'),
@@ -136,5 +138,5 @@ export function subscribeToPublishedPosts(
   return onSnapshot(q, (snap) => {
     const posts: ChurchPost[] = snap.docs.map((d) => mapFirestorePost(d, churchId, 'published'));
     callback(posts);
-  });
+  }, onError);
 }

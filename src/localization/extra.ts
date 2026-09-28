@@ -26,6 +26,11 @@ export interface ExtraCopy {
     emailVerificationSendFailed: string;
     emailVerificationCheckFailed: string;
     emailVerificationSignOut: string;
+    emailVerificationBannerTitle: string;
+    emailVerificationBannerBody: string;
+    emailVerificationBannerSendAgain: string;
+    emailVerificationBannerAutoSent: string;
+    emailVerificationRateLimited: string;
   };
   authErrors: Record<string, string>;
   invitation: {
@@ -39,11 +44,13 @@ export interface ExtraCopy {
     checkingTitle: string;
     signOut: string;
     continue: string;
+    verifyEmailToAccept: string;
   };
   noMembership: {
     label: string;
     title: string;
     body: string;
+    churchSelectorTitle: string;
     openProfile: string;
   };
   profile: {
@@ -224,6 +231,7 @@ export interface ExtraCopy {
       dashboard: string;
       members: string;
       events: string;
+      eventPlatform: string;
       posts: string;
       newsletters: string;
       notifications: string;
@@ -535,7 +543,7 @@ const ENGLISH: ExtraCopy = {
     motto: 'Faith • Community • Tradition',
     google: 'Google',
     emailVerificationTitle: 'Verify your email',
-    emailVerificationBody: 'Kandilo requires a verified account email before opening parish data, invitations, donations, and official tax receipt tools.',
+    emailVerificationBody: 'Kandilo uses a verified account email for invitations, donations, and official tax receipt tools.',
     emailVerificationEmailLabel: 'Account email',
     emailVerificationSend: 'Send verification email',
     emailVerificationSending: 'Sending verification',
@@ -547,6 +555,11 @@ const ENGLISH: ExtraCopy = {
     emailVerificationSendFailed: 'Unable to send a verification email right now. Try again or contact support.',
     emailVerificationCheckFailed: 'Unable to check email verification right now. Try again or contact support.',
     emailVerificationSignOut: 'Sign out',
+    emailVerificationBannerTitle: 'Waiting for email verification',
+    emailVerificationBannerBody: 'We sent a verification link to your account email. You can keep using Kandilo while you verify.',
+    emailVerificationBannerSendAgain: 'Send again',
+    emailVerificationBannerAutoSent: 'Verification email sent. Check your inbox and open the link when you can.',
+    emailVerificationRateLimited: 'Please wait before requesting another verification email.',
   },
   authErrors: {
     'auth/user-not-found': 'Invalid email or password.',
@@ -574,12 +587,14 @@ const ENGLISH: ExtraCopy = {
     checkingTitle: 'Checking your invitation.',
     signOut: 'Sign Out',
     continue: 'Continue to Kandilo',
+    verifyEmailToAccept: 'Verify your account email before accepting this invitation. You can keep using Kandilo and return from the invitation link after verifying.',
   },
   noMembership: {
     label: 'Membership Required',
-    title: 'Your parish access starts with an invitation.',
-    body: 'Ask a parish admin or priest to send an invitation to your email address. You can browse listed churches from your profile while you wait.',
-    openProfile: 'Open Profile',
+    title: 'Your parish access can start now.',
+    body: 'You can join any listed church as a member right away. Ask a parish admin or priest for an invitation if you need elevated roles.',
+    churchSelectorTitle: 'Church selector',
+    openProfile: 'Select Church',
   },
   profile: {
     kandiloParishioner: 'Kandilo Parishioner',
@@ -759,6 +774,7 @@ const ENGLISH: ExtraCopy = {
       dashboard: 'Overview',
       members: 'Directory',
       events: 'Events',
+      eventPlatform: 'Event Setup',
       posts: 'Posts',
       newsletters: 'Bulletins',
       notifications: 'Alerts',
@@ -1067,7 +1083,7 @@ const SR_LAT: ExtraCopy = {
     motto: 'Vera • Zajednica • Predanje',
     google: 'Google',
     emailVerificationTitle: 'Potvrdite email',
-    emailVerificationBody: 'Kandilo zahteva potvrđen email naloga pre otvaranja parohijskih podataka, pozivnica, donacija i alata za zvanične poreske potvrde.',
+    emailVerificationBody: 'Kandilo koristi potvrđen email naloga za pozivnice, donacije i alate za zvanične poreske potvrde.',
     emailVerificationEmailLabel: 'Email naloga',
     emailVerificationSend: 'Pošalji email za potvrdu',
     emailVerificationSending: 'Slanje potvrde',
@@ -1079,6 +1095,11 @@ const SR_LAT: ExtraCopy = {
     emailVerificationSendFailed: 'Trenutno nije moguće poslati email za potvrdu. Pokušajte ponovo ili kontaktirajte podršku.',
     emailVerificationCheckFailed: 'Trenutno nije moguće proveriti potvrdu emaila. Pokušajte ponovo ili kontaktirajte podršku.',
     emailVerificationSignOut: 'Odjavi se',
+    emailVerificationBannerTitle: 'Čekamo potvrdu emaila',
+    emailVerificationBannerBody: 'Poslali smo link za potvrdu na email vašeg naloga. Možete nastaviti da koristite Kandilo dok potvrđujete email.',
+    emailVerificationBannerSendAgain: 'Pošalji ponovo',
+    emailVerificationBannerAutoSent: 'Email za potvrdu je poslat. Proverite inbox i otvorite link kada možete.',
+    emailVerificationRateLimited: 'Sačekajte pre nego što zatražite još jedan email za potvrdu.',
   },
   authErrors: {
     'auth/user-not-found': 'Email ili lozinka nisu ispravni.',
@@ -1106,12 +1127,14 @@ const SR_LAT: ExtraCopy = {
     checkingTitle: 'Provera pozivnice.',
     signOut: 'Odjavi se',
     continue: 'Nastavi u Kandilo',
+    verifyEmailToAccept: 'Potvrdite email naloga pre prihvatanja ove pozivnice. Možete nastaviti da koristite Kandilo i vratiti se preko linka pozivnice nakon potvrde.',
   },
   noMembership: {
     label: 'Članstvo je potrebno',
     title: 'Pristup parohiji počinje pozivnicom.',
-    body: 'Zamolite administratora ili sveštenika da pošalje pozivnicu na vašu email adresu. Dok čekate, možete pregledati crkve iz profila.',
-    openProfile: 'Otvori profil',
+    body: 'Zamolite administratora ili sveštenika da pošalje pozivnicu na vašu email adresu. Dok čekate, možete pregledati crkve.',
+    churchSelectorTitle: 'Izbor crkve',
+    openProfile: 'Izaberi crkvu',
   },
   profile: {
     ...ENGLISH.profile,
@@ -1178,7 +1201,7 @@ const SR_LAT: ExtraCopy = {
   },
   management: {
     ...ENGLISH.management,
-    tabs: { dashboard: 'Pregled', members: 'Imenik', events: 'Događaji', posts: 'Objave', newsletters: 'Bilteni', notifications: 'Obaveštenja', receipts: 'Potvrde', scanner: 'Prijava' },
+    tabs: { dashboard: 'Pregled', members: 'Imenik', events: 'Događaji', eventPlatform: 'Podešavanje događaja', posts: 'Objave', newsletters: 'Bilteni', notifications: 'Obaveštenja', receipts: 'Potvrde', scanner: 'Prijava' },
     roles: { priest: 'Sveštenik', treasurer: 'Blagajnik', admin: 'Administrator', member: 'Član' },
     statuses: { active: 'Aktivan', suspended: 'Suspendovan', pending: 'Na čekanju' },
     common: { ...ENGLISH.management.common, actions: 'Akcije', cancel: 'Otkaži', saveChanges: 'Sačuvaj izmene', edit: 'Izmeni', publish: 'Objavi', saveDraft: 'Sačuvaj nacrt', draft: 'Nacrt', published: 'Objavljeno', notPublished: 'Nije objavljeno', title: 'Naslov', content: 'Sadržaj', excerpt: 'Sažetak' },
@@ -1256,12 +1279,14 @@ const SR_CYR: ExtraCopy = {
     checkingTitle: 'Провера позивнице.',
     signOut: 'Одјави се',
     continue: 'Настави у Кандило',
+    verifyEmailToAccept: 'Потврдите емаил налога пре прихватања ове позивнице. Можете наставити да користите Кандило и вратити се преко линка позивнице након потврде.',
   },
   noMembership: {
     label: 'Чланство је потребно',
     title: 'Приступ парохији почиње позивницом.',
-    body: 'Замолите администратора или свештеника да пошаље позивницу на вашу емаил адресу. Док чекате, можете прегледати цркве из профила.',
-    openProfile: 'Отвори профил',
+    body: 'Замолите администратора или свештеника да пошаље позивницу на вашу емаил адресу. Док чекате, можете прегледати цркве.',
+    churchSelectorTitle: 'Избор цркве',
+    openProfile: 'Изабери цркву',
   },
   profile: { ...SR_LAT.profile, kandiloParishioner: 'Кандило парохијан', myChurches: 'Моје цркве', discoverChurches: 'Пронађи цркве', signOut: 'Одјави се' },
   management: { ...SR_LAT.management, scanner: { ...SR_LAT.management.scanner, eyebrow: 'Парохијска присутност', title: 'Пријава за догађај.', checkedIn: 'Пријављено', search: 'Претражи активне чланове...', noEventsAvailable: 'Нема доступних догађаја', noEventsTitle: 'Нема догађаја за пријаву', noEventsSub: 'Прво креирајте догађај, па се вратите овде да забележите присутност.', activeMembers: (count) => `${count} активних чланова`, noActiveMembers: 'Нема активних чланова', checkedInAction: 'Пријављен', checkInAction: 'Пријави', loadError: 'Тренутно није могуће учитати пријаве.', updateError: 'Тренутно није могуће ажурирати пријаву.' } },
@@ -1317,17 +1342,19 @@ const RU: ExtraCopy = {
     checkingTitle: 'Проверяем приглашение.',
     signOut: 'Выйти',
     continue: 'Продолжить в Kandilo',
+    verifyEmailToAccept: ENGLISH.invitation.verifyEmailToAccept,
   },
   noMembership: {
     label: 'Требуется членство',
     title: 'Доступ к приходу начинается с приглашения.',
-    body: 'Попросите администратора или священника отправить приглашение на ваш email. Пока ждете, можно посмотреть приходы в профиле.',
-    openProfile: 'Открыть профиль',
+    body: 'Попросите администратора или священника отправить приглашение на ваш email. Пока ждете, можно посмотреть доступные приходы.',
+    churchSelectorTitle: 'Выбор церкви',
+    openProfile: 'Выбрать церковь',
   },
-  profile: { ...SR_LAT.profile, kandiloParishioner: 'Прихожанин Kandilo', myChurches: 'Мои церкви', discoverChurches: 'Найти церкви', signOut: 'Выйти' },
-  giving: { ...SR_LAT.giving, secureCheckout: 'Безопасная оплата', yourParish: 'Ваш приход', donor: 'Жертвователь', receipt: 'Квитанция', parishioner: 'Прихожанин', noEmail: 'Email не указан', completeSecureCheckout: 'Завершить безопасную оплату', yourImpact: 'Ваш вклад', familiesSupported: 'Семей поддержано', donatedThisMonth: 'Пожертвовано в этом месяце', goalProgress: 'Прогресс цели', avgStewardship: 'Среднее пожертвование' },
-  management: { ...SR_LAT.management, tabs: { dashboard: 'Обзор', members: 'Справочник', events: 'События', posts: 'Посты', newsletters: 'Бюллетени', notifications: 'Оповещения', receipts: 'Квитанции', scanner: 'Регистрация' }, roles: { priest: 'Священник', treasurer: 'Казначей', admin: 'Администратор', member: 'Член' }, scanner: { ...SR_LAT.management.scanner, eyebrow: 'Приходская посещаемость', title: 'Регистрация на событие.', checkedIn: 'Отмечены', search: 'Поиск активных членов...', noEventsAvailable: 'Нет доступных событий', noEventsTitle: 'Нет событий для регистрации', noEventsSub: 'Сначала создайте событие, затем вернитесь сюда, чтобы отметить посещаемость.', activeMembers: (count) => `${count} активных членов`, noActiveMembers: 'Активные члены не найдены', checkedInAction: 'Отмечен', checkInAction: 'Отметить', loadError: 'Сейчас не удалось загрузить регистрации.', updateError: 'Сейчас не удалось обновить регистрацию.' } },
-  postEditor: { ...SR_LAT.postEditor, back: 'Назад к постам', saveDraft: 'Сохранить черновик', publish: 'Опубликовать', titlePlaceholder: 'Заголовок поста...', draft: 'Черновик' },
+  profile: { ...ENGLISH.profile, kandiloParishioner: 'Прихожанин Kandilo', myChurches: 'Мои церкви', discoverChurches: 'Найти церкви', signOut: 'Выйти' },
+  giving: { ...ENGLISH.giving, secureCheckout: 'Безопасная оплата', yourParish: 'Ваш приход', donor: 'Жертвователь', receipt: 'Квитанция', parishioner: 'Прихожанин', noEmail: 'Email не указан', completeSecureCheckout: 'Завершить безопасную оплату', yourImpact: 'Ваш вклад', familiesSupported: 'Семей поддержано', donatedThisMonth: 'Пожертвовано в этом месяце', goalProgress: 'Прогресс цели', avgStewardship: 'Среднее пожертвование' },
+  management: { ...ENGLISH.management, tabs: { dashboard: 'Обзор', members: 'Справочник', events: 'События', eventPlatform: 'Настройка события', posts: 'Посты', newsletters: 'Бюллетени', notifications: 'Оповещения', receipts: 'Квитанции', scanner: 'Регистрация' }, roles: { priest: 'Священник', treasurer: 'Казначей', admin: 'Администратор', member: 'Член' }, scanner: { ...ENGLISH.management.scanner, eyebrow: 'Приходская посещаемость', title: 'Регистрация на событие.', checkedIn: 'Отмечены', search: 'Поиск активных членов...', noEventsAvailable: 'Нет доступных событий', noEventsTitle: 'Нет событий для регистрации', noEventsSub: 'Сначала создайте событие, затем вернитесь сюда, чтобы отметить посещаемость.', activeMembers: (count) => `${count} активных членов`, noActiveMembers: 'Активные члены не найдены', checkedInAction: 'Отмечен', checkInAction: 'Отметить', loadError: 'Сейчас не удалось загрузить регистрации.', updateError: 'Сейчас не удалось обновить регистрацию.' } },
+  postEditor: { ...ENGLISH.postEditor, back: 'Назад к постам', saveDraft: 'Сохранить черновик', publish: 'Опубликовать', titlePlaceholder: 'Заголовок поста...', draft: 'Черновик' },
   fullCalendar: { title: 'Полный календарь', filters: 'Фильтры', all: 'Все', scheduleFor: (month, day) => `Расписание на ${day} ${month}`, selectDay: 'Выберите день', noEvents: 'На этот день событий нет' },
 };
 
@@ -1373,17 +1400,19 @@ const RO: ExtraCopy = {
     checkingTitle: 'Verificăm invitația.',
     signOut: 'Deconectare',
     continue: 'Continuă în Kandilo',
+    verifyEmailToAccept: ENGLISH.invitation.verifyEmailToAccept,
   },
   noMembership: {
     label: 'Este necesară calitatea de membru',
     title: 'Accesul la parohie începe cu o invitație.',
-    body: 'Cere unui administrator sau preot să trimită o invitație la adresa ta de email. Poți vedea bisericile listate în profil.',
-    openProfile: 'Deschide profilul',
+    body: 'Cere unui administrator sau preot să trimită o invitație la adresa ta de email. Poți vedea bisericile listate în timp ce aștepți.',
+    churchSelectorTitle: 'Selector biserică',
+    openProfile: 'Selectează biserica',
   },
-  profile: { ...SR_LAT.profile, kandiloParishioner: 'Enoriaș Kandilo', myChurches: 'Bisericile mele', discoverChurches: 'Descoperă biserici', signOut: 'Deconectare' },
-  giving: { ...SR_LAT.giving, secureCheckout: 'Plată securizată', yourParish: 'Parohia ta', donor: 'Donator', receipt: 'Chitanță', parishioner: 'Enoriaș', noEmail: 'Niciun email', completeSecureCheckout: 'Finalizează plata securizată', yourImpact: 'Impactul tău', familiesSupported: 'Familii sprijinite', donatedThisMonth: 'Donat luna aceasta', goalProgress: 'Progresul obiectivului', avgStewardship: 'Donație medie' },
-  management: { ...SR_LAT.management, tabs: { dashboard: 'Privire generală', members: 'Director', events: 'Evenimente', posts: 'Postări', newsletters: 'Buletine', notifications: 'Alerte', receipts: 'Chitanțe', scanner: 'Check-in' }, roles: { priest: 'Preot', treasurer: 'Trezorier', admin: 'Administrator', member: 'Membru' }, scanner: { ...SR_LAT.management.scanner, eyebrow: 'Prezență parohială', title: 'Check-in eveniment.', checkedIn: 'Înregistrați', search: 'Caută membri activi...', noEventsAvailable: 'Nu există evenimente disponibile', noEventsTitle: 'Nu există evenimente pentru check-in', noEventsSub: 'Creează mai întâi un eveniment, apoi revino aici pentru prezență.', activeMembers: (count) => `${count} membri activi`, noActiveMembers: 'Nu s-au găsit membri activi', checkedInAction: 'Înregistrat', checkInAction: 'Înregistrează', loadError: 'Nu se pot încărca înregistrările acum.', updateError: 'Nu se poate actualiza check-in-ul acum.' } },
-  postEditor: { ...SR_LAT.postEditor, back: 'Înapoi la postări', saveDraft: 'Salvează ciornă', publish: 'Publică', titlePlaceholder: 'Titlul postării...', draft: 'Ciornă' },
+  profile: { ...ENGLISH.profile, kandiloParishioner: 'Enoriaș Kandilo', myChurches: 'Bisericile mele', discoverChurches: 'Descoperă biserici', signOut: 'Deconectare' },
+  giving: { ...ENGLISH.giving, secureCheckout: 'Plată securizată', yourParish: 'Parohia ta', donor: 'Donator', receipt: 'Chitanță', parishioner: 'Enoriaș', noEmail: 'Niciun email', completeSecureCheckout: 'Finalizează plata securizată', yourImpact: 'Impactul tău', familiesSupported: 'Familii sprijinite', donatedThisMonth: 'Donat luna aceasta', goalProgress: 'Progresul obiectivului', avgStewardship: 'Donație medie' },
+  management: { ...ENGLISH.management, tabs: { dashboard: 'Privire generală', members: 'Director', events: 'Evenimente', eventPlatform: 'Configurare eveniment', posts: 'Postări', newsletters: 'Buletine', notifications: 'Alerte', receipts: 'Chitanțe', scanner: 'Check-in' }, roles: { priest: 'Preot', treasurer: 'Trezorier', admin: 'Administrator', member: 'Membru' }, scanner: { ...ENGLISH.management.scanner, eyebrow: 'Prezență parohială', title: 'Check-in eveniment.', checkedIn: 'Înregistrați', search: 'Caută membri activi...', noEventsAvailable: 'Nu există evenimente disponibile', noEventsTitle: 'Nu există evenimente pentru check-in', noEventsSub: 'Creează mai întâi un eveniment, apoi revino aici pentru prezență.', activeMembers: (count) => `${count} membri activi`, noActiveMembers: 'Nu s-au găsit membri activi', checkedInAction: 'Înregistrat', checkInAction: 'Înregistrează', loadError: 'Nu se pot încărca înregistrările acum.', updateError: 'Nu se poate actualiza check-in-ul acum.' } },
+  postEditor: { ...ENGLISH.postEditor, back: 'Înapoi la postări', saveDraft: 'Salvează ciornă', publish: 'Publică', titlePlaceholder: 'Titlul postării...', draft: 'Ciornă' },
   fullCalendar: { title: 'Calendar complet', filters: 'Filtre', all: 'Toate', scheduleFor: (month, day) => `Program pentru ${day} ${month}`, selectDay: 'Selectează o zi', noEvents: 'Nu sunt evenimente programate pentru această zi' },
 };
 
@@ -1429,17 +1458,19 @@ const UK: ExtraCopy = {
     checkingTitle: 'Перевіряємо запрошення.',
     signOut: 'Вийти',
     continue: 'Продовжити в Kandilo',
+    verifyEmailToAccept: ENGLISH.invitation.verifyEmailToAccept,
   },
   noMembership: {
     label: 'Потрібне членство',
     title: 'Доступ до парафії починається із запрошення.',
-    body: 'Попросіть адміністратора або священника надіслати запрошення на вашу email-адресу. Поки чекаєте, можна переглядати церкви у профілі.',
-    openProfile: 'Відкрити профіль',
+    body: 'Попросіть адміністратора або священника надіслати запрошення на вашу email-адресу. Поки чекаєте, можна переглядати доступні церкви.',
+    churchSelectorTitle: 'Вибір церкви',
+    openProfile: 'Вибрати церкву',
   },
-  profile: { ...SR_LAT.profile, kandiloParishioner: 'Парафіянин Kandilo', myChurches: 'Мої церкви', discoverChurches: 'Знайти церкви', signOut: 'Вийти' },
-  giving: { ...SR_LAT.giving, secureCheckout: 'Безпечна оплата', yourParish: 'Ваша парафія', donor: 'Жертводавець', receipt: 'Квитанція', parishioner: 'Парафіянин', noEmail: 'Email не вказано', completeSecureCheckout: 'Завершити безпечну оплату', yourImpact: 'Ваш внесок', familiesSupported: 'Сімей підтримано', donatedThisMonth: 'Пожертвувано цього місяця', goalProgress: 'Прогрес цілі', avgStewardship: 'Середня пожертва' },
-  management: { ...SR_LAT.management, tabs: { dashboard: 'Огляд', members: 'Довідник', events: 'Події', posts: 'Пости', newsletters: 'Бюлетені', notifications: 'Оповіщення', receipts: 'Квитанції', scanner: 'Реєстрація' }, roles: { priest: 'Священник', treasurer: 'Скарбник', admin: 'Адміністратор', member: 'Член' }, scanner: { ...SR_LAT.management.scanner, eyebrow: 'Парафіяльна відвідуваність', title: 'Реєстрація на подію.', checkedIn: 'Зареєстровано', search: 'Пошук активних членів...', noEventsAvailable: 'Немає доступних подій', noEventsTitle: 'Немає подій для реєстрації', noEventsSub: 'Спочатку створіть подію, а потім поверніться сюди, щоб записати відвідуваність.', activeMembers: (count) => `${count} активних членів`, noActiveMembers: 'Активних членів не знайдено', checkedInAction: 'Зареєстровано', checkInAction: 'Зареєструвати', loadError: 'Зараз не вдалося завантажити реєстрації.', updateError: 'Зараз не вдалося оновити реєстрацію.' } },
-  postEditor: { ...SR_LAT.postEditor, back: 'Назад до постів', saveDraft: 'Зберегти чернетку', publish: 'Опублікувати', titlePlaceholder: 'Заголовок поста...', draft: 'Чернетка' },
+  profile: { ...ENGLISH.profile, kandiloParishioner: 'Парафіянин Kandilo', myChurches: 'Мої церкви', discoverChurches: 'Знайти церкви', signOut: 'Вийти' },
+  giving: { ...ENGLISH.giving, secureCheckout: 'Безпечна оплата', yourParish: 'Ваша парафія', donor: 'Жертводавець', receipt: 'Квитанція', parishioner: 'Парафіянин', noEmail: 'Email не вказано', completeSecureCheckout: 'Завершити безпечну оплату', yourImpact: 'Ваш внесок', familiesSupported: 'Сімей підтримано', donatedThisMonth: 'Пожертвувано цього місяця', goalProgress: 'Прогрес цілі', avgStewardship: 'Середня пожертва' },
+  management: { ...ENGLISH.management, tabs: { dashboard: 'Огляд', members: 'Довідник', events: 'Події', eventPlatform: 'Налаштування події', posts: 'Пости', newsletters: 'Бюлетені', notifications: 'Оповіщення', receipts: 'Квитанції', scanner: 'Реєстрація' }, roles: { priest: 'Священник', treasurer: 'Скарбник', admin: 'Адміністратор', member: 'Член' }, scanner: { ...ENGLISH.management.scanner, eyebrow: 'Парафіяльна відвідуваність', title: 'Реєстрація на подію.', checkedIn: 'Зареєстровано', search: 'Пошук активних членів...', noEventsAvailable: 'Немає доступних подій', noEventsTitle: 'Немає подій для реєстрації', noEventsSub: 'Спочатку створіть подію, а потім поверніться сюди, щоб записати відвідуваність.', activeMembers: (count) => `${count} активних членів`, noActiveMembers: 'Активних членів не знайдено', checkedInAction: 'Зареєстровано', checkInAction: 'Зареєструвати', loadError: 'Зараз не вдалося завантажити реєстрації.', updateError: 'Зараз не вдалося оновити реєстрацію.' } },
+  postEditor: { ...ENGLISH.postEditor, back: 'Назад до постів', saveDraft: 'Зберегти чернетку', publish: 'Опублікувати', titlePlaceholder: 'Заголовок поста...', draft: 'Чернетка' },
   fullCalendar: { title: 'Повний календар', filters: 'Фільтри', all: 'Усе', scheduleFor: (month, day) => `Розклад на ${day} ${month}`, selectDay: 'Виберіть день', noEvents: 'На цей день подій не заплановано' },
 };
 

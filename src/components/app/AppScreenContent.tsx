@@ -98,6 +98,19 @@ export default function AppScreenContent({
           onClearInitialEvent={onClearSelectedEvent}
           onCloseDetail={onCloseEventDetail}
           language={language}
+          initialTab="events"
+        />
+      );
+    case 'saints':
+      return withLazyScreenFallback(
+        <ScheduleScreen
+          events={events}
+          onShowFullCalendar={() => onScreenChange('calendar')}
+          initialSelectedEvent={selectedCalendarEvent}
+          onClearInitialEvent={onClearSelectedEvent}
+          onCloseDetail={onCloseEventDetail}
+          language={language}
+          initialTab="saints"
         />
       );
     case 'calendar':
@@ -113,6 +126,7 @@ export default function AppScreenContent({
     case 'home':
       return activeChurch ? (
         <HomeScreen
+          onOpenGiving={() => onScreenChange('giving')}
           events={events}
           onSelectEvent={(event) => onSelectEvent(event, 'home')}
           language={language}
@@ -122,7 +136,7 @@ export default function AppScreenContent({
           showSaintDays={showSaintDays}
         />
       ) : (
-        <NoMembershipState onOpenProfile={() => onScreenChange('profile')} language={language} />
+        <NoMembershipState language={language} canJoin={currentUser?.emailVerified === true && !currentUser.isAnonymous} />
       );
     case 'profile':
       return withLazyScreenFallback(

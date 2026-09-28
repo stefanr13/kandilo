@@ -9,6 +9,7 @@ const OPERATION_MANAGEMENT_TABS: readonly ManagementTab[] = [
   'dashboard',
   'members',
   'events',
+  'eventPlatform',
   'posts',
   'newsletters',
   'notifications',

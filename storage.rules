@@ -3,8 +3,13 @@ rules_version = '2';
 service firebase.storage {
   match /b/{bucket}/o {
 
-    function isVerifiedNonAnonymous() {
+    function isSignedInNonAnonymous() {
       return request.auth != null
+        && request.auth.token.firebase.sign_in_provider != 'anonymous';
+    }
+
+    function isVerifiedNonAnonymous() {
+      return isSignedInNonAnonymous()
         && request.auth.token.email_verified == true
         && request.auth.token.firebase.sign_in_provider != 'anonymous';
     }
@@ -15,7 +20,7 @@ service firebase.storage {
     }
 
     function isActiveMember(churchId) {
-      return isVerifiedNonAnonymous()
+      return isSignedInNonAnonymous()
         && isActiveChurch(churchId)
         && firestore.exists(/databases/(default)/documents/churches/$(churchId)/members/$(request.auth.uid))
         && firestore.get(/databases/(default)/documents/churches/$(churchId)/members/$(request.auth.uid)).data.status == 'active';
@@ -38,16 +43,16 @@ service firebase.storage {
         || request.resource.contentType == 'application/pdf';
     }
 
-    // Church top-level assets (logos, cover photos): readable by verified users
+    // Church top-level assets (logos, cover photos): readable by signed-in users
     // for active churches. Writes remain backend-only.
     match /churches/{churchId}/{fileName} {
-      allow read: if isVerifiedNonAnonymous() && isActiveChurch(churchId);
+      allow read: if isSignedInNonAnonymous() && isActiveChurch(churchId);
       allow write: if false;
     }
 
-    // User avatars: owner can write constrained raster images; verified users can read.
+    // User avatars: owner can write constrained raster images; signed-in users can read.
     match /users/{userId}/avatar/{fileName} {
-      allow read: if isVerifiedNonAnonymous();
+      allow read: if isSignedInNonAnonymous();
       allow write: if isVerifiedNonAnonymous()
         && request.auth.uid == userId
         && fileName.matches('avatar-[A-Za-z0-9-]+\\.(jpg|png|webp)')

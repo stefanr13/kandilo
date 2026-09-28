@@ -2,14 +2,12 @@ import { useState, useEffect, useRef } from 'react';
 import {
   Heart,
   CheckCircle2,
-  Star,
   Mail,
   X,
   ChevronRight,
   Gift,
   HandHeart,
   Loader2,
-  MapPin,
   ReceiptText,
   Send,
   Eye,
@@ -29,7 +27,7 @@ import {
   sendCorrectedTaxReceipt,
   sendTaxReceipt,
 } from '../lib/api/giving';
-import { sendEmailVerificationEmail } from '../lib/api/auth';
+import { firebaseAuthErrorCode, sendAccountEmailVerification } from '../lib/auth';
 import {
   getGivingStatus,
   getTaxReceipt,
@@ -565,7 +563,7 @@ export default function GivingScreen({
     setEmailVerificationSending(true);
     setEmailVerificationMessage('');
     try {
-      const result = await sendEmailVerificationEmail();
+      const result = await sendAccountEmailVerification(currentUser);
       await currentUser.reload().catch(() => undefined);
       setEmailVerificationRefreshKey((current) => current + 1);
       setEmailVerificationMessage(
@@ -574,8 +572,13 @@ export default function GivingScreen({
           : extra.emailVerificationSent
       );
     } catch (error) {
-      console.error('Failed to send email verification:', error);
-      setEmailVerificationMessage(extra.emailVerificationSendFailed);
+      if (firebaseAuthErrorCode(error) === 'auth/too-many-requests') {
+        console.warn('Email verification send rate-limited:', error);
+        setEmailVerificationMessage(extra.emailVerificationStillPending);
+      } else {
+        console.error('Failed to send email verification:', error);
+        setEmailVerificationMessage(extra.emailVerificationSendFailed);
+      }
     } finally {
       setEmailVerificationSending(false);
     }
@@ -2320,12 +2323,10 @@ export default function GivingScreen({
     );
   }
 
-  const waysToGive = [
+  const onlineGivingOptions = [
     { title: t.oneTimeTitle, sub: t.oneTimeSub, icon: Gift },
-    { title: t.monthlyTitle, sub: t.monthlySub, icon: Heart },
-    { title: t.buildingTitle, sub: t.buildingSub, icon: Star },
-    { title: t.inPersonTitle, sub: t.inPersonSub, icon: MapPin },
   ];
+  const activeParishName = activeChurch?.name ?? extra.yourParish;
 
   return (
     <div className="pb-32 bg-[#F9F9F9] min-h-full">
@@ -2346,16 +2347,32 @@ export default function GivingScreen({
                 <HandHeart size={28} />
               </div>
               <div>
-                <h3 className="font-black text-gray-900 text-lg tracking-tight">{t.stewardship}</h3>
-                <p className="text-[10px] text-[#937022] font-bold uppercase tracking-widest">{t.goal}: $250,000</p>
+                <h3 className="font-black text-gray-900 text-lg tracking-tight">{t.oneTimeTitle}</h3>
+                <p className="text-[10px] text-[#937022] font-bold uppercase tracking-widest">
+                  {activeParishName}
+                </p>
               </div>
             </div>
-            <div className="w-full h-3 bg-gray-50 rounded-full overflow-hidden mb-4">
-              <motion.div initial={{ width: 0 }} animate={{ width: '65%' }} transition={{ duration: 1.5, ease: "easeOut" }} className="h-full bg-[#800000]" />
-            </div>
-            <div className="flex justify-between items-center mb-8">
-              <span className="text-[10px] font-black text-gray-900">$162,500 {t.raised}</span>
-              <span className="text-[10px] font-black text-[#937022]">65% {t.ofGoal}</span>
+            <p className="mb-6 text-sm font-medium leading-relaxed text-gray-500">
+              {extra.redirectStripe}
+            </p>
+            <div className="mb-8 grid grid-cols-2 gap-3">
+              <div className="rounded-2xl bg-gray-50 p-4">
+                <p className="text-[10px] font-black uppercase tracking-widest text-gray-400">
+                  {t.donationAmount}
+                </p>
+                <p className="mt-1 text-sm font-black text-gray-900">
+                  {activeChurchDonationCurrency}
+                </p>
+              </div>
+              <div className="rounded-2xl bg-gray-50 p-4">
+                <p className="text-[10px] font-black uppercase tracking-widest text-gray-400">
+                  {t.purpose}
+                </p>
+                <p className="mt-1 text-sm font-black text-gray-900">
+                  {t.generalFund}
+                </p>
+              </div>
             </div>
             <button
               onClick={() => setGivingPhase('details')}
@@ -2370,8 +2387,13 @@ export default function GivingScreen({
         <div>
           <h2 className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] mb-6">{t.waysToGive}</h2>
           <div className="space-y-4">
-            {waysToGive.map((item, i) => (
-              <div key={i} className="bg-white rounded-[24px] p-5 flex items-center gap-5 border border-transparent hover:border-gray-100 transition-all shadow-sm cursor-pointer hover:shadow-md">
+            {onlineGivingOptions.map((item) => (
+              <button
+                key={item.title}
+                type="button"
+                onClick={() => setGivingPhase('details')}
+                className="w-full bg-white rounded-[24px] p-5 flex items-center gap-5 border border-transparent hover:border-gray-100 transition-all shadow-sm cursor-pointer hover:shadow-md text-left"
+              >
                 <div className="w-12 h-12 rounded-2xl bg-gray-50 flex items-center justify-center text-[#937022]">
                   <item.icon size={22} />
                 </div>
@@ -2380,26 +2402,8 @@ export default function GivingScreen({
                   <p className="text-[10px] text-gray-400 mt-0.5 font-medium">{item.sub}</p>
                 </div>
                 <ChevronRight size={16} className="text-gray-200" />
-              </div>
+              </button>
             ))}
-          </div>
-
-          {/* Impact stats */}
-          <div className="mt-8 bg-gray-900 rounded-[32px] p-8 text-white">
-            <h3 className="text-lg font-black tracking-tight mb-6">{extra.yourImpact}</h3>
-            <div className="grid grid-cols-2 gap-4">
-              {[
-                { value: '342', label: extra.familiesSupported },
-                { value: '$12K', label: extra.donatedThisMonth },
-                { value: '89%', label: extra.goalProgress },
-                { value: '5 yrs', label: extra.avgStewardship },
-              ].map(({ value, label }) => (
-                <div key={label} className="bg-white/5 rounded-2xl p-4">
-                  <p className="text-2xl font-black text-[#937022] tracking-tight">{value}</p>
-                  <p className="text-[10px] text-white/50 font-bold uppercase tracking-widest mt-1">{label}</p>
-                </div>
-              ))}
-            </div>
           </div>
 
           <div
@@ -2429,16 +2433,32 @@ export default function GivingScreen({
                 <HandHeart size={28} />
               </div>
               <div>
-                <h3 className="font-black text-gray-900 text-lg tracking-tight">{t.stewardship}</h3>
-                <p className="text-[10px] text-[#937022] font-bold uppercase tracking-widest">{t.goal}: $250,000</p>
+                <h3 className="font-black text-gray-900 text-lg tracking-tight">{t.oneTimeTitle}</h3>
+                <p className="text-[10px] text-[#937022] font-bold uppercase tracking-widest">
+                  {activeParishName}
+                </p>
               </div>
             </div>
-            <div className="w-full h-3 bg-gray-50 rounded-full overflow-hidden mb-4">
-              <motion.div initial={{ width: 0 }} animate={{ width: '65%' }} transition={{ duration: 1.5, ease: "easeOut" }} className="h-full bg-[#800000]" />
-            </div>
-            <div className="flex justify-between items-center mb-8">
-              <span className="text-[10px] font-black text-gray-900">$162,500 {t.raised}</span>
-              <span className="text-[10px] font-black text-[#937022]">65% {t.ofGoal}</span>
+            <p className="mb-6 text-sm font-medium leading-relaxed text-gray-500">
+              {extra.redirectStripe}
+            </p>
+            <div className="mb-8 grid grid-cols-2 gap-3">
+              <div className="rounded-2xl bg-gray-50 p-4">
+                <p className="text-[10px] font-black uppercase tracking-widest text-gray-400">
+                  {t.donationAmount}
+                </p>
+                <p className="mt-1 text-sm font-black text-gray-900">
+                  {activeChurchDonationCurrency}
+                </p>
+              </div>
+              <div className="rounded-2xl bg-gray-50 p-4">
+                <p className="text-[10px] font-black uppercase tracking-widest text-gray-400">
+                  {t.purpose}
+                </p>
+                <p className="mt-1 text-sm font-black text-gray-900">
+                  {t.generalFund}
+                </p>
+              </div>
             </div>
             <button onClick={() => setGivingPhase('details')} className="w-full py-5 bg-[#800000] text-white rounded-full font-black text-xs uppercase tracking-[0.2em] shadow-xl shadow-red-900/20 hover:bg-[#8D1212] transition-all active:scale-95">
               {t.makeDonation}
@@ -2458,8 +2478,13 @@ export default function GivingScreen({
 
         <div className="px-8 space-y-4">
           <h2 className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] mb-4 ml-2">{t.waysToGive}</h2>
-          {waysToGive.map((item, i) => (
-            <div key={i} className="bg-white rounded-[24px] p-5 flex items-center gap-5 border border-transparent hover:border-gray-100 transition-all shadow-sm">
+          {onlineGivingOptions.map((item) => (
+            <button
+              key={item.title}
+              type="button"
+              onClick={() => setGivingPhase('details')}
+              className="w-full bg-white rounded-[24px] p-5 flex items-center gap-5 border border-transparent hover:border-gray-100 transition-all shadow-sm text-left"
+            >
               <div className="w-12 h-12 rounded-2xl bg-gray-50 flex items-center justify-center text-gray-400">
                 <item.icon size={22} />
               </div>
@@ -2468,7 +2493,7 @@ export default function GivingScreen({
                 <p className="text-[10px] text-gray-400 mt-0.5 font-medium">{item.sub}</p>
               </div>
               <ChevronRight size={16} className="text-gray-200" />
-            </div>
+            </button>
           ))}
         </div>
       </div>
