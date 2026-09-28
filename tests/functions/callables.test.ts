@@ -15109,7 +15109,15 @@ describe('Production regression paths', () => {
     }
     expect((await adminDb.doc('eventOrders/deleted-user-order').get()).data()).toMatchObject({ customerName: 'Deleted account', customerEmail: '', customerPhone: '', specialInstructions: '', totalCents: 2000 });
     expect((await adminDb.doc('giving/retained-record').get()).exists).toBe(true);
-    await waitFor(async () => (await adminStorage.bucket(STORAGE_BUCKETS[0]).file(`users/${uid}/avatar.jpg`).exists())[0], (exists) => !exists, 'avatar cleanup');
+    // The CLI uses the configured bucket when logged in and the appspot fallback
+    // in credential-free CI. Cleanup must delete the avatar in its active bucket.
+    await waitFor(
+      async () => Promise.all(STORAGE_BUCKETS.map(async (bucket) => (
+        await adminStorage.bucket(bucket).file(`users/${uid}/avatar.jpg`).exists()
+      )[0])),
+      (existence) => existence.filter((exists) => !exists).length === 1,
+      'avatar cleanup in the Functions emulator default bucket'
+    );
   });
 
   it('requires genuine verified email and serializes concurrent self-joins at the cap', async () => {

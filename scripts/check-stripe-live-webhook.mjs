@@ -244,7 +244,7 @@ async function main() {
   const keyMode = stripeKeyMode(secretKey);
   if (keyMode !== 'live') {
     console.error('FAIL STRIPE_SECRET_KEY must be provided as a live sk_live_... or rk_live_... key in the current shell environment.');
-    console.error('Do not store the live key in .env.local or functions/.env.production. Pass it only for this read-only check.');
+    console.error('Do not store the live key in .env.local or functions/.env.kandilo-2f7a9. Pass it only for this read-only check.');
     process.exit(1);
   }
 

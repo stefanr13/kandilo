@@ -179,7 +179,7 @@ async function main() {
   const apiKey = process.env.RESEND_API_KEY ?? '';
   if (!resendApiKeyLooksValid(apiKey)) {
     console.error('FAIL RESEND_API_KEY must be provided as a live re_... key in the current shell environment.');
-    console.error('Do not store the live key in .env.local or functions/.env.production. Pass it only for this read-only check.');
+    console.error('Do not store the live key in .env.local or functions/.env.kandilo-2f7a9. Pass it only for this read-only check.');
     process.exit(1);
   }
 

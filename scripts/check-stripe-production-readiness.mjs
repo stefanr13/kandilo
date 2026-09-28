@@ -832,10 +832,10 @@ record(
   'Wrong project means live keys/webhooks could be deployed to the wrong Firebase project.'
 );
 
-const functionsEnv = readEnv('functions/.env.production');
+const functionsEnv = readEnv('functions/.env.kandilo-2f7a9');
 record(
   functionsEnv !== null || ciStaticMode,
-  'functions/.env.production exists',
+  'functions/.env.kandilo-2f7a9 exists',
   !functionsEnv && ciStaticMode
     ? 'Skipped in CI static readiness mode; deploy readiness still requires the production APP_URL configuration.'
     : ''
@@ -848,7 +848,7 @@ if (functionsEnv) {
   );
   record(
     !includesAnyEnv(functionsEnv, backendSecretNames),
-    'Stripe and email secrets are not stored in functions/.env.production',
+    'Stripe and email secrets are not stored in functions/.env.kandilo-2f7a9',
     `Use Firebase Secret Manager for ${backendSecretNames.join(', ')}.`
   );
 }

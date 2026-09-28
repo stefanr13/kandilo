@@ -7,11 +7,13 @@ Use this when preparing `kandilo-2f7a9` for production deployment and physical-d
 ## 1. Required Local Files
 
 - `.env.local` at the repo root with the public Vite/Firebase values from Firebase Console, including `VITE_FIREBASE_STORAGE_BUCKET=kandilo-2f7a9.firebasestorage.app` so retained receipt PDF smoke checks read the same production bucket used by Functions.
-- `functions/.env.production` with `APP_URL=https://app.kandilo.org`.
+- `functions/.env.kandilo-2f7a9` with `APP_URL=https://app.kandilo.org`.
 - `ios/App/App/GoogleService-Info.plist` for local iOS builds.
 - `android/app/google-services.json` for local Android builds.
 
 These files are intentionally gitignored where they contain environment-specific configuration.
+
+For local emulators, use ignored `functions/.env.local` with `APP_URL=http://localhost:3000`. Firebase loads it after the project-specific file only in emulator mode, so local email and checkout links keep pointing to localhost.
 
 ## 2. Firebase Console Setup
 
